@@ -1,0 +1,85 @@
+<!-- pages/training-history/training-history.wxml — 训练历史页面 -->
+<view class="page">
+
+  <!-- ══════════════ Loading 状态 ══════════════ -->
+  <view wx:if="{{state === 'loading'}}" class="state-container">
+    <view class="loading-box">
+      <view class="loading-spinner"></view>
+      <text class="loading-text">加载中...</text>
+    </view>
+  </view>
+
+  <!-- ══════════════ 错误状态 ══════════════ -->
+  <view wx:elif="{{state === 'error'}}" class="state-container">
+    <view class="error-box card">
+      <text class="error-icon">⚠️</text>
+      <text class="error-msg">{{errorMsg}}</text>
+      <button class="retry-btn" bind:tap="onRetry">重试</button>
+    </view>
+  </view>
+
+  <!-- ══════════════ 空状态 ══════════════ -->
+  <view wx:elif="{{state === 'empty'}}" class="state-container">
+    <view class="empty-box card">
+      <text class="empty-icon">📋</text>
+      <text class="empty-title">暂无训练历史</text>
+      <text class="empty-desc">完成训练打卡后，这里将显示你的训练记录</text>
+    </view>
+  </view>
+
+  <!-- ══════════════ 历史列表 ══════════════ -->
+  <view wx:elif="{{state === 'loaded'}}" class="history-list">
+    <view
+      class="week-item card"
+      wx:for="{{weeks}}"
+      wx:key="_id"
+    >
+      <!-- 周标题（可点击展开） -->
+      <view class="week-header" data-index="{{index}}" bind:tap="onToggleWeek">
+        <view class="week-info">
+          <text class="week-id">{{item.weekId}}</text>
+          <text class="week-range">{{item.weekStart}} ~ {{item.weekEnd}}</text>
+        </view>
+        <view class="week-summary">
+          <text class="week-progress">{{item.totalCompleted}}/{{item.totalTarget}} 组</text>
+          <text class="expand-icon">{{expandedWeekIndex === index ? '▲' : '▼'}}</text>
+        </view>
+      </view>
+
+      <!-- 展开的详情 -->
+      <view wx:if="{{expandedWeekIndex === index}}" class="week-detail">
+        <view class="day-section" wx:for="{{item.days}}" wx:for-item="day" wx:key="dayIndex">
+          <view class="day-header">
+            <text class="day-name">{{dayNames[day.dayIndex]}}</text>
+            <text class="day-date">{{day.date}}</text>
+          </view>
+
+          <!-- 休息日 -->
+          <view wx:if="{{!day.exercises || day.exercises.length === 0}}" class="rest-day">
+            <text>😴 休息日</text>
+          </view>
+
+          <!-- 动作列表（只读模式） -->
+          <training-exercise-card
+            wx:for="{{day.exercises}}"
+            wx:for-item="exercise"
+            wx:key="weekItemId"
+            exercise="{{exercise}}"
+            weekDocId="{{item._id}}"
+            readonly="{{true}}"
+          />
+        </view>
+      </view>
+    </view>
+
+    <!-- 加载更多 -->
+    <view wx:if="{{hasMore}}" class="load-more">
+      <text wx:if="{{isLoadingMore}}">加载中...</text>
+      <text wx:else bind:tap="onLoadMore">加载更多</text>
+    </view>
+    <view wx:else class="no-more">
+      <text>没有更多了</text>
+    </view>
+  </view>
+
+</view>

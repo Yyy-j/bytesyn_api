@@ -1,0 +1,54 @@
+<!-- pages/pairing/pairing.wxml -->
+<view class="container">
+
+  <!-- 全局加载中 -->
+  <view wx:if="{{!ready}}" class="loading-wrap">
+    <text class="loading-text">加载中…</text>
+  </view>
+
+  <!-- 初始：创建 or 加入 -->
+  <view wx:elif="{{state === 'init'}}" class="scene">
+    <view class="hero">
+      <text class="app-name">BiteSync</text>
+      <text class="tagline">你和 Ta 的饮食记录</text>
+    </view>
+    <view class="actions">
+      <button class="btn btn-primary" bindtap="onCreate">创建配对</button>
+      <button class="btn btn-ghost"   bindtap="toJoin">输入邀请码加入</button>
+    </view>
+  </view>
+
+  <!-- 已创建：展示邀请码 -->
+  <view wx:elif="{{state === 'created'}}" class="scene">
+    <view class="hero">
+      <text class="scene-title">配对已创建</text>
+      <text class="scene-sub">把下面的邀请码发给 Ta</text>
+    </view>
+    <view class="code-card">
+      <text class="invite-code">{{inviteCode}}</text>
+    </view>
+    <text class="hint">Ta 输入邀请码后，你们将共享同一个 BiteSync</text>
+    <button class="btn btn-primary" bindtap="goToSummary">进入 BiteSync →</button>
+  </view>
+
+  <!-- 输入邀请码加入 -->
+  <view wx:elif="{{state === 'join'}}" class="scene">
+    <view class="hero">
+      <text class="scene-title">输入邀请码</text>
+      <text class="scene-sub">输入对方发给你的 6 位邀请码</text>
+    </view>
+    <input
+      class="code-input"
+      type="number"
+      maxlength="6"
+      placeholder="请输入邀请码"
+      value="{{inputCode}}"
+      bindinput="onCodeInput"
+    />
+    <button class="btn btn-primary" disabled="{{loading}}" bindtap="onJoin">
+      {{loading ? '加入中…' : '加入配对'}}
+    </button>
+    <text class="back-link" bindtap="toInit">← 返回</text>
+  </view>
+
+</view>

@@ -1,0 +1,64 @@
+/* styles/variables.wxss — 设计 Token */
+
+page {
+  /* ── 主色（柔和绿） ── */
+  --color-primary:       #6FCF97;
+  --color-primary-light: #E8F8EF;
+  --color-primary-dark:  #4BAE78;
+
+  /* ── 双人身份色 ── */
+  --color-me:       #4A90E2;   /* 蓝：我    */
+  --color-ta:       #F299A1;   /* 玫瑰：Ta  */
+  --color-me-light: #EAF2FC;
+  --color-ta-light: #FEF0F1;
+
+  /* ── 功能色 ── */
+  --color-success:       #27AE60;
+  --color-warning:       #EB5757;
+  --color-warning-light: #FEF0F0;
+
+  /* ── 文字色 ── */
+  --color-text-primary:   #1F1F1F;
+  --color-text-secondary: #8A8A8A;
+  --color-text-tertiary:  #BEBEBE;
+
+  /* ── 背景色 ── */
+  --color-bg:      #F7F8F6;
+  --color-bg-card: #FFFFFF;
+  --color-border:  #EDEDED;
+
+  /* ── 宏量营养素色（低饱和、克制） ── */
+  --color-protein:    #6DBF8A;
+  --color-carbs:      #F0C274;
+  --color-fat:        #E8A0A0;
+  --color-protein-bg: #EDF7F1;
+  --color-carbs-bg:   #FEF8EC;
+  --color-fat-bg:     #FDF0F0;
+
+  /* ── 字号（px → rpx，1px = 2rpx） ── */
+  --font-size-num: 72rpx;   /* 36px  大号热量数字 */
+  --font-size-xl:  48rpx;   /* 24px  页面标题     */
+  --font-size-lg:  40rpx;   /* 20px  卡片标题     */
+  --font-size-md:  32rpx;   /* 16px  正文         */
+  --font-size-sm:  26rpx;   /* 13px  辅助文字     */
+  --font-size-xs:  22rpx;   /* 11px  微文案       */
+
+  /* ── 间距 ── */
+  --spacing-xs:  8rpx;
+  --spacing-sm:  16rpx;
+  --spacing-md:  24rpx;
+  --spacing-lg:  36rpx;
+  --spacing-xl:  56rpx;
+  --spacing-xxl: 80rpx;
+  --page-padding: 32rpx;   /* 页面统一左右内边距 */
+
+  /* ── 圆角 ── */
+  --radius-sm:   8rpx;
+  --radius-md:   16rpx;
+  --radius-lg:   28rpx;      /* 卡片 */
+  --radius-full: 999rpx;     /* 按钮、胶囊、头像 */
+
+  /* ── 阴影 ── */
+  --shadow-card: 0 4rpx 20rpx rgba(0, 0, 0, 0.05);
+  --shadow-btn:  0 8rpx 28rpx rgba(111, 207, 151, 0.32);
+}

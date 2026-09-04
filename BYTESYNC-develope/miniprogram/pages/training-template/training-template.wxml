@@ -1,0 +1,189 @@
+<!-- pages/training-template/training-template.wxml — 模板编辑页 -->
+<view class="page">
+  
+  <!-- ══════════════ Loading 状态 ══════════════ -->
+  <view wx:if="{{state === 'loading'}}" class="state-container">
+    <view class="loading-box">
+      <view class="loading-spinner"></view>
+      <text class="loading-text">加载中...</text>
+    </view>
+  </view>
+
+  <!-- ══════════════ 错误状态 ══════════════ -->
+  <view wx:elif="{{state === 'error'}}" class="state-container">
+    <view class="error-box card">
+      <text class="error-icon">⚠️</text>
+      <text class="error-msg">{{errorMsg}}</text>
+      <button class="retry-btn" bind:tap="onRetry">重试</button>
+    </view>
+  </view>
+
+  <!-- ══════════════ 编辑内容 ══════════════ -->
+  <view wx:else class="content">
+    
+    <!-- 星期切换 -->
+    <scroll-view class="day-tabs" scroll-x enable-flex>
+      <view
+        wx:for="{{dayNames}}"
+        wx:key="index"
+        class="day-tab {{currentDay === index ? 'active' : ''}}"
+        data-day="{{index}}"
+        bind:tap="onDayChange"
+      >
+        <text class="day-name">{{item}}</text>
+        <text class="day-count" wx:if="{{days[index].exercises.length}}">
+          {{days[index].exercises.length}}
+        </text>
+      </view>
+    </scroll-view>
+
+    <!-- 当天动作列表 -->
+    <view class="exercise-section">
+      <view class="section-header">
+        <text class="section-title">{{dayNames[currentDay]}}的训练</text>
+        <view class="add-btn" bind:tap="onAddExercise">
+          <text class="add-icon">+</text>
+          <text class="add-text">添加动作</text>
+        </view>
+      </view>
+
+      <!-- 空状态 -->
+      <view wx:if="{{currentExercises.length === 0}}" class="empty-day card">
+        <text class="empty-icon">📝</text>
+        <text class="empty-text">今天还没有训练安排</text>
+        <text class="empty-hint">点击上方"添加动作"开始</text>
+      </view>
+
+      <!-- 动作列表 -->
+      <view wx:else class="exercise-list">
+        <view 
+          wx:for="{{currentExercises}}" 
+          wx:key="itemId"
+          class="exercise-card card"
+        >
+          <!-- 正常显示模式 -->
+          <view wx:if="{{editingIndex !== index}}" class="exercise-content">
+            <view class="exercise-main">
+              <view class="exercise-info">
+                <text class="exercise-name">{{item.exerciseName}}</text>
+                <text class="exercise-category">{{item.category || '未分类'}}</text>
+              </view>
+              
+              <!-- 力量训练显示 -->
+              <view wx:if="{{item.itemType !== 'cardio'}}" class="exercise-stats">
+                <text class="stat">{{item.targetSets}}组</text>
+                <text class="stat">×{{item.targetReps}}次</text>
+                <text class="stat" wx:if="{{item.targetWeight > 0}}">{{item.targetWeight}}kg</text>
+              </view>
+              
+              <!-- 有氧训练显示 -->
+              <view wx:else class="exercise-stats">
+                <text class="stat">{{item.targetDuration}}秒</text>
+              </view>
+            </view>
+
+            <!-- 操作按钮 -->
+            <view class="exercise-actions">
+              <view class="action-btn" data-index="{{index}}" bind:tap="onMoveUp">
+                <text wx:if="{{index > 0}}">↑</text>
+              </view>
+              <view class="action-btn" data-index="{{index}}" bind:tap="onMoveDown">
+                <text wx:if="{{index < currentExercises.length - 1}}">↓</text>
+              </view>
+              <view class="action-btn edit" data-index="{{index}}" bind:tap="onEditExercise">
+                <text>编辑</text>
+              </view>
+              <view class="action-btn delete" data-index="{{index}}" bind:tap="onDeleteExercise">
+                <text>删除</text>
+              </view>
+            </view>
+          </view>
+
+          <!-- 编辑模式 -->
+          <view wx:else class="exercise-edit">
+            <view class="edit-header">
+              <text class="exercise-name">{{item.exerciseName}}</text>
+              <text class="edit-type">{{item.itemType === 'cardio' ? '有氧/静态' : '力量'}}</text>
+            </view>
+            
+            <!-- 力量训练编辑 -->
+            <view wx:if="{{item.itemType !== 'cardio'}}" class="edit-form">
+              <view class="edit-row">
+                <text class="edit-label">组数</text>
+                <input 
+                  class="edit-input" 
+                  type="number" 
+                  value="{{editForm.targetSets}}" 
+                  placeholder="1-50"
+                  data-field="targetSets"
+                  bindinput="onEditFormInput"
+                />
+              </view>
+              <view class="edit-row">
+                <text class="edit-label">次数</text>
+                <input 
+                  class="edit-input" 
+                  type="number" 
+                  value="{{editForm.targetReps}}" 
+                  placeholder="1-999"
+                  data-field="targetReps"
+                  bindinput="onEditFormInput"
+                />
+              </view>
+              <view class="edit-row">
+                <text class="edit-label">重量(kg)</text>
+                <input 
+                  class="edit-input" 
+                  type="digit" 
+                  value="{{editForm.targetWeight}}" 
+                  placeholder="0-1000"
+                  data-field="targetWeight"
+                  bindinput="onEditFormInput"
+                />
+              </view>
+            </view>
+
+            <!-- 有氧训练编辑 -->
+            <view wx:else class="edit-form">
+              <view class="edit-row">
+                <text class="edit-label">时长(秒)</text>
+                <input 
+                  class="edit-input" 
+                  type="number" 
+                  value="{{editForm.targetDuration}}" 
+                  placeholder="1-1440"
+                  data-field="targetDuration"
+                  bindinput="onEditFormInput"
+                />
+              </view>
+            </view>
+
+            <!-- 教学视频链接 -->
+            <view class="video-link-row" data-index="{{index}}" bind:tap="onManageVideos">
+              <text class="video-link-label">教学视频</text>
+              <text class="video-link-count">{{item.videoLinks.length || 0}}/3</text>
+              <text class="video-link-arrow">›</text>
+            </view>
+
+            <view class="edit-actions">
+              <button class="edit-cancel" bind:tap="onCancelEdit">取消</button>
+              <button class="edit-save" bind:tap="onSaveEdit">确定</button>
+            </view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 底部保存按钮 -->
+    <view class="bottom-bar safe-bottom">
+      <button 
+        class="primary-btn save-btn {{state === 'saving' ? 'disabled' : ''}}" 
+        disabled="{{state === 'saving'}}"
+        bind:tap="onSave"
+      >
+        {{state === 'saving' ? '保存中...' : (hasTemplate ? '保存修改' : '创建模板')}}
+      </button>
+    </view>
+  </view>
+
+</view>

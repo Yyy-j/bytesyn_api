@@ -1,0 +1,24 @@
+<!-- components/macro-bar/macro-bar.wxml -->
+<view class="macro-bar">
+  <view class="macro-row">
+    <text class="macro-label">蛋白质</text>
+    <view class="macro-track">
+      <view class="macro-fill protein" style="width: {{proteinPct}}%" />
+    </view>
+    <text class="macro-value">{{protein}}g</text>
+  </view>
+  <view class="macro-row">
+    <text class="macro-label">碳水</text>
+    <view class="macro-track">
+      <view class="macro-fill carbs" style="width: {{carbsPct}}%" />
+    </view>
+    <text class="macro-value">{{carbs}}g</text>
+  </view>
+  <view class="macro-row">
+    <text class="macro-label">脂肪</text>
+    <view class="macro-track">
+      <view class="macro-fill fat" style="width: {{fatPct}}%" />
+    </view>
+    <text class="macro-value">{{fat}}g</text>
+  </view>
+</view>

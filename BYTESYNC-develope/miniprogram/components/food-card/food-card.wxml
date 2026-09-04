@@ -1,0 +1,40 @@
+<!-- components/food-card/food-card.wxml -->
+<view class="food-card">
+  <image wx:if="{{imageUrl}}" class="food-image" src="{{imageUrl}}" mode="aspectFill" />
+  <view class="food-info">
+    <text class="food-name">{{name}}</text>
+    <view class="calories-row">
+      <text class="kcal-number">{{calories}}</text>
+      <text class="kcal-unit">kcal</text>
+    </view>
+    <view class="food-macros">
+      <view class="macro-item">
+        <text class="macro-value protein">{{protein}}g</text>
+        <text class="macro-label">蛋白质</text>
+      </view>
+      <view class="macro-divider"></view>
+      <view class="macro-item">
+        <text class="macro-value carbs">{{carbs}}g</text>
+        <text class="macro-label">碳水</text>
+      </view>
+      <view class="macro-divider"></view>
+      <view class="macro-item">
+        <text class="macro-value fat">{{fat}}g</text>
+        <text class="macro-label">脂肪</text>
+      </view>
+    </view>
+
+    <!-- 卡路里明细 -->
+    <view wx:if="{{dishes && dishes.length}}" class="breakdown">
+      <text class="breakdown-title">{{dishes.length > 1 ? '卡路里怎么算出来的' : '主要成分估算'}}</text>
+      <view wx:for="{{dishes}}" wx:key="index" class="breakdown-row">
+        <text class="breakdown-name">{{item.name}}</text>
+        <text class="breakdown-cal">{{item.calories}} kcal</text>
+      </view>
+      <view class="breakdown-row breakdown-total">
+        <text class="breakdown-name">合计</text>
+        <text class="breakdown-cal">{{calories}} kcal</text>
+      </view>
+    </view>
+  </view>
+</view>

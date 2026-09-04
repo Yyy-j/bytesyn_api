@@ -1,0 +1,34 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Node.js
+node_modules/
+
+# Editor and OS files
+.DS_Store
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Local Codex metadata
+.agents/
+.codex/
+
+# Archives and generated output
+*.zip
+dist/
+build/
+*.log
+
+# WeChat developer-specific settings
+project.private.config.json

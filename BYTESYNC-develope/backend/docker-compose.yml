@@ -1,0 +1,17 @@
+services:
+  api:
+    build:
+      context: .
+    container_name: bytesync-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    networks:
+      - postgres-network
+
+networks:
+  postgres-network:
+    external: true
+    name: ${BYTESYNC_NETWORK:?Set BYTESYNC_NETWORK to the network used by bytesync-postgres}

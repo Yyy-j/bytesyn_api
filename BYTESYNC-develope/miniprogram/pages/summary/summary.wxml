@@ -1,0 +1,161 @@
+<!-- pages/summary/summary.wxml -->
+<view class="page">
+
+  <!-- ── Header ── -->
+  <view class="page-header">
+    <text class="page-title">今日总览</text>
+    <text wx:if="{{inviteCode}}" class="pair-id-text">配对码：{{inviteCode}}</text>
+  </view>
+
+  <!-- ── 日期切换 ── -->
+  <view class="section">
+    <date-switcher date="{{currentDate}}" bind:change="onDateChange" />
+  </view>
+
+  <!-- ── 双人数据卡片 ── -->
+  <view class="section">
+    <view class="cards-row">
+      <view class="card-half">
+        <summary-card
+          userName="{{me.name}}"
+          role="{{me.role}}"
+          calories="{{me.calories}}"
+          calorieGoal="{{me.calorieGoal}}"
+          protein="{{me.protein}}"
+          proteinGoal="{{me.proteinGoal}}"
+          carbs="{{me.carbs}}"
+          carbsGoal="{{me.carbsGoal}}"
+          fat="{{me.fat}}"
+          fatGoal="{{me.fatGoal}}"
+        />
+      </view>
+      <view class="card-half">
+        <summary-card
+          userName="{{ta.name}}"
+          role="{{ta.role}}"
+          calories="{{ta.calories}}"
+          calorieGoal="{{ta.calorieGoal}}"
+          protein="{{ta.protein}}"
+          proteinGoal="{{ta.proteinGoal}}"
+          carbs="{{ta.carbs}}"
+          carbsGoal="{{ta.carbsGoal}}"
+          fat="{{ta.fat}}"
+          fatGoal="{{ta.fatGoal}}"
+        />
+      </view>
+    </view>
+
+    <!-- 我的每日目标 -->
+    <view class="goal-row">
+      <view wx:if="{{!goalEditing}}" class="goal-display">
+        <text class="goal-label">我的每日目标：{{me.calorieGoal}} kcal</text>
+        <text class="goal-edit-btn" bind:tap="toggleGoalEdit">修改</text>
+      </view>
+      <view wx:else class="goal-edit-row">
+        <input class="goal-input" value="{{goalInput}}" placeholder="800–5000" type="number" bind:input="onGoalInput" />
+        <text class="goal-save-btn" bind:tap="onSaveGoal">保存</text>
+        <text class="goal-cancel-btn" bind:tap="toggleGoalEdit">取消</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- ── 今日小结 ── -->
+  <view class="section">
+    <view class="summary-note card">
+      <view class="summary-note__content">
+        <text class="summary-note__label">今日小结</text>
+        <text class="summary-note__line1">{{summaryMessage.title}}</text>
+        <text class="summary-note__line2">{{summaryMessage.detail}}</text>
+      </view>
+      <image class="summary-note__image" src="/assets/icons/summary-duo.png" mode="aspectFit" />
+    </view>
+  </view>
+
+  <!-- ── 今日记录列表 ── -->
+  <view class="section">
+    <text class="section-label">今日记录</text>
+    <view wx:if="{{foods.length > 0}}" class="food-list">
+      <food-list-item
+        wx:for="{{foods}}"
+        wx:key="id"
+        mealId="{{item.id}}"
+        name="{{item.name}}"
+        calories="{{item.calories}}"
+        protein="{{item.protein}}"
+        carbs="{{item.carbs}}"
+        fat="{{item.fat}}"
+        originalCalories="{{item.originalCalories}}"
+        originalProtein="{{item.originalProtein}}"
+        originalCarbs="{{item.originalCarbs}}"
+        originalFat="{{item.originalFat}}"
+        dishes="{{item.dishes}}"
+        user="{{item.user}}"
+        userName="{{item.userName}}"
+        time="{{item.time}}"
+        canDelete="{{item.canDelete}}"
+        canEdit="{{item.canEdit}}"
+        bind:delete="onDeleteMeal"
+        bind:edit="onEditMeal"
+      />
+    </view>
+    <view wx:else class="empty-hint">
+      <text class="empty-icon">🍽</text>
+      <text class="empty-sub">拍一餐开始吧</text>
+    </view>
+  </view>
+
+  <!-- ── 直接编辑数据 弹层 ── -->
+  <view wx:if="{{editMealVisible}}" class="modal-mask" catchtap="onCloseEditMeal">
+    <view class="modal-card" catchtap="_noop">
+      <text class="modal-title">编辑这条记录</text>
+      <view class="manual-row">
+        <text class="manual-label">名称</text>
+        <input class="manual-input" value="{{editingMealForm.name}}" data-field="name" bind:input="onEditMealInput" />
+      </view>
+      <view class="manual-row">
+        <text class="manual-label">卡路里 <text class="manual-required">*</text></text>
+        <input class="manual-input" value="{{editingMealForm.calories}}" placeholder="千卡" type="digit" data-field="calories" bind:input="onEditMealInput" />
+      </view>
+      <view class="manual-row">
+        <text class="manual-label">蛋白质</text>
+        <input class="manual-input" value="{{editingMealForm.protein}}" placeholder="0 克" type="digit" data-field="protein" bind:input="onEditMealInput" />
+      </view>
+      <view class="manual-row">
+        <text class="manual-label">碳水化合物</text>
+        <input class="manual-input" value="{{editingMealForm.carbs}}" placeholder="0 克" type="digit" data-field="carbs" bind:input="onEditMealInput" />
+      </view>
+      <view class="manual-row">
+        <text class="manual-label">脂肪</text>
+        <input class="manual-input" value="{{editingMealForm.fat}}" placeholder="0 克" type="digit" data-field="fat" bind:input="onEditMealInput" />
+      </view>
+      <text wx:if="{{editingHasDishes}}" class="modal-tip">手动修改后，明细与总热量可能不一致</text>
+      <view class="modal-actions">
+        <view class="modal-btn modal-btn-cancel" bind:tap="onCloseEditMeal">取消</view>
+        <view class="modal-btn modal-btn-primary" bind:tap="onSaveEditMeal">保存</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- ── 补充说明再识别 弹层 ── -->
+  <view wx:if="{{refineMealVisible}}" class="modal-mask" catchtap="onCloseRefineMeal">
+    <view class="modal-card" catchtap="_noop">
+      <text class="modal-title">补充说明再识别</text>
+      <text wx:if="{{refiningPrevHint}}" class="modal-sub">原说明：{{refiningPrevHint}}</text>
+      <textarea
+        class="modal-textarea"
+        value="{{refiningExtra}}"
+        placeholder="例如：去掉酱料 / 这是双层不是单层 / 肉饼其实是鸡肉"
+        maxlength="80"
+        auto-height
+        show-confirm-bar="{{false}}"
+        bind:input="onRefineMealInput"
+      />
+      <text class="modal-tip">将按文字描述重新估算，并保留你之前的份量/分摊比例</text>
+      <view class="modal-actions">
+        <view class="modal-btn modal-btn-cancel" bind:tap="onCloseRefineMeal">取消</view>
+        <view class="modal-btn modal-btn-primary" bind:tap="onSaveRefineMeal">重新识别</view>
+      </view>
+    </view>
+  </view>
+
+</view>

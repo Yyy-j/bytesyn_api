@@ -1,0 +1,81 @@
+<!-- pages/training/training.wxml — 训练首页 -->
+<view class="page">
+
+  <!-- 页面标题 -->
+  <view class="header">
+    <text class="page-title">训练</text>
+    <view class="header-actions">
+      <view wx:if="{{state === 'loaded'}}" class="header-link" bind:tap="onGoHistory">
+        <text>历史</text>
+      </view>
+      <view wx:if="{{state === 'loaded'}}" class="header-link" bind:tap="onEditTemplate">
+        <text>编辑模板</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- ══════════════ Loading 状态 ══════════════ -->
+  <view wx:if="{{state === 'loading'}}" class="state-container">
+    <view class="loading-box">
+      <view class="loading-spinner"></view>
+      <text class="loading-text">加载中...</text>
+    </view>
+  </view>
+
+  <!-- ══════════════ 错误状态 ══════════════ -->
+  <view wx:elif="{{state === 'error'}}" class="state-container">
+    <view class="error-box card">
+      <text class="error-icon">⚠️</text>
+      <text class="error-msg">{{errorMsg}}</text>
+      <button class="retry-btn" bind:tap="onRetry">重试</button>
+    </view>
+  </view>
+
+  <!-- ══════════════ 无模板状态 ══════════════ -->
+  <view wx:elif="{{state === 'empty'}}" class="state-container">
+    <view class="empty-box card">
+      <text class="empty-icon">🏋️</text>
+      <text class="empty-title">还没有训练计划</text>
+      <text class="empty-desc">创建一个每周训练模板，开始你的健身之旅</text>
+      <button class="primary-btn create-btn" bind:tap="onEditTemplate">创建训练计划</button>
+    </view>
+  </view>
+
+  <!-- ══════════════ 有周计划状态 ══════════════ -->
+  <view wx:elif="{{state === 'loaded'}}" class="content">
+
+    <!-- 日期切换 -->
+    <scroll-view class="day-tabs" scroll-x enable-flex>
+      <view
+        wx:for="{{dayNames}}"
+        wx:key="index"
+        class="day-tab {{selectedDayIndex === index ? 'active' : ''}} {{todayDayIndex === index ? 'today' : ''}}"
+        data-day="{{index}}"
+        bind:tap="onDayChange"
+      >
+        <text class="day-name">{{item}}</text>
+        <text wx:if="{{todayDayIndex === index}}" class="today-dot">·</text>
+      </view>
+    </scroll-view>
+
+    <!-- 训练列表 -->
+    <view class="exercise-list">
+      <!-- 休息日 -->
+      <view wx:if="{{currentDayExercises.length === 0}}" class="rest-day card">
+        <text class="rest-icon">😴</text>
+        <text class="rest-text">休息日</text>
+      </view>
+
+      <!-- 训练卡片 -->
+      <training-exercise-card
+        wx:for="{{currentDayExercises}}"
+        wx:key="weekItemId"
+        exercise="{{item}}"
+        weekDocId="{{weekDocId}}"
+        bind:checkinSuccess="onCheckinSuccess"
+      />
+    </view>
+
+  </view>
+
+</view>

@@ -1,0 +1,320 @@
+/* pages/summary/summary.wxss */
+
+.page {
+  min-height: 100vh;
+  background: var(--color-bg);
+  padding-bottom: calc(var(--spacing-xxl) + constant(safe-area-inset-bottom));
+  padding-bottom: calc(var(--spacing-xxl) + env(safe-area-inset-bottom));
+}
+
+/* ── Header ── */
+.page-header {
+  padding: calc(var(--spacing-xl) + 16rpx) var(--page-padding) var(--spacing-sm);
+}
+
+.page-title {
+  display: block;
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--color-text-primary);
+  line-height: 1.2;
+}
+
+.page-subtitle {
+  display: block;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  margin-top: var(--spacing-sm);
+}
+
+.pair-id-text {
+  display: block;
+  font-size: 20rpx;
+  color: var(--color-text-tertiary);
+  opacity: 0.6;
+  margin-top: 8rpx;
+  letter-spacing: 0.5rpx;
+}
+
+/* ── 通用 Section ── */
+.section {
+  padding: var(--spacing-md) var(--page-padding);
+}
+
+/* ── 双人卡片并排 ── */
+.cards-row {
+  display: flex;
+  gap: var(--spacing-md);
+}
+
+.card-half {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── 目标行 ── */
+.goal-row {
+  margin-top: var(--spacing-md);
+}
+
+.goal-display {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-bg-card);
+  border-radius: var(--radius-md);
+}
+
+.goal-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.goal-edit-btn {
+  font-size: var(--font-size-xs);
+  color: var(--color-primary);
+  padding: 4rpx 16rpx;
+}
+
+.goal-edit-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-bg-card);
+  border-radius: var(--radius-md);
+}
+
+.goal-input {
+  flex: 1;
+  height: 64rpx;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  border-bottom: 1.5rpx solid rgba(111, 207, 151, 0.4);
+  padding: 0 8rpx;
+}
+
+.goal-save-btn {
+  font-size: var(--font-size-sm);
+  color: #fff;
+  background: var(--color-primary);
+  border-radius: var(--radius-full);
+  padding: 10rpx 28rpx;
+  font-weight: 600;
+}
+
+.goal-cancel-btn {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  padding: 10rpx 12rpx;
+}
+
+/* ── 列表区标题 ── */
+.section-label {
+  display: block;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  letter-spacing: 2rpx;
+  margin-bottom: var(--spacing-md);
+}
+
+/* ── 今日小结卡片 ── */
+.summary-note {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: #F2F7F3;
+}
+
+.summary-note__content {
+  flex: 1;
+  min-width: 0;
+}
+
+.summary-note__label {
+  display: block;
+  font-size: 20rpx;
+  font-weight: 700;
+  color: var(--color-text-secondary);
+  letter-spacing: 2rpx;
+  margin-bottom: 10rpx;
+}
+
+.summary-note__line1 {
+  display: block;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  line-height: 1.5;
+  margin-bottom: 8rpx;
+}
+
+.summary-note__line2 {
+  display: block;
+  font-size: 22rpx;
+  color: var(--color-text-secondary);
+  line-height: 1.65;
+}
+
+.summary-note__image {
+  width: 108rpx;
+  height: 108rpx;
+  flex-shrink: 0;
+  opacity: 0.92;
+}
+
+/* ── 食物列表（整体圆角卡片容器） ── */
+.food-list {
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+}
+
+/* ══════════════════════════════════════
+   编辑/重识别 弹层
+══════════════════════════════════════ */
+
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-lg);
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 640rpx;
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.modal-title {
+  display: block;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-bottom: var(--spacing-md);
+}
+
+.modal-sub {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  margin-bottom: var(--spacing-sm);
+}
+
+.modal-tip {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  margin-top: var(--spacing-sm);
+}
+
+.modal-textarea {
+  width: 100%;
+  min-height: 140rpx;
+  background: rgba(111, 207, 151, 0.08);
+  border: 1.5rpx solid rgba(111, 207, 151, 0.3);
+  border-radius: 20rpx;
+  padding: 22rpx 24rpx;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  line-height: 1.6;
+  box-sizing: border-box;
+}
+
+.modal-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-lg);
+}
+
+.modal-btn {
+  flex: 1;
+  height: 80rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  border-radius: var(--radius-full);
+}
+
+.modal-btn-cancel {
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  border: 1.5rpx solid var(--color-border);
+}
+
+.modal-btn-primary {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+/* 复用 record 风格的表单行（在 modal 内） */
+.modal-card .manual-row {
+  display: flex;
+  align-items: center;
+  padding: var(--spacing-sm) 0;
+  border-bottom: 1rpx solid var(--color-border);
+}
+
+.modal-card .manual-row:last-of-type {
+  border-bottom: none;
+}
+
+.modal-card .manual-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  width: 160rpx;
+  flex-shrink: 0;
+}
+
+.modal-card .manual-required {
+  color: var(--color-warning, #EB5757);
+}
+
+.modal-card .manual-input {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  text-align: right;
+}
+
+/* ── 空状态 ── */
+.empty-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--spacing-xxl) 0 var(--spacing-xl);
+  gap: var(--spacing-xs);
+}
+
+.empty-icon {
+  font-size: 64rpx;
+  line-height: 1.2;
+  margin-bottom: var(--spacing-sm);
+}
+
+.empty-title {
+  display: block;
+  font-size: var(--font-size-md);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.empty-sub {
+  display: block;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}

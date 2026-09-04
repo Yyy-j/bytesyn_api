@@ -1,0 +1,47 @@
+/* components/macro-bar/macro-bar.wxss */
+
+.macro-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.macro-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.macro-label {
+  width: 56rpx;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.macro-track {
+  flex: 1;
+  height: 6rpx;
+  background: var(--color-border);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.macro-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.macro-fill.protein { background: var(--color-protein); }
+.macro-fill.carbs   { background: var(--color-carbs);   }
+.macro-fill.fat     { background: var(--color-fat);     }
+
+.macro-value {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  text-align: right;
+  flex-shrink: 0;
+  white-space: nowrap;
+}

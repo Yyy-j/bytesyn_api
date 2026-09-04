@@ -1,0 +1,244 @@
+<!-- pages/record/record.wxml -->
+<view class="page">
+
+  <!-- ══════════════ IDLE 状态 ══════════════ -->
+  <view wx:if="{{state === 'idle'}}" class="idle-page">
+    <view class="idle-header">
+      <text class="page-title">拍一餐</text>
+      <text class="page-subtitle">饭前拍一下，轻轻记录这一餐</text>
+    </view>
+
+    <view class="idle-camera">
+      <view class="hint-row">
+        <textarea
+          class="hint-input"
+          value="{{aiHint}}"
+          placeholder="描述食物，或拍照前补充说明"
+          placeholder-class="hint-placeholder"
+          maxlength="80"
+          auto-height
+          show-confirm-bar="{{false}}"
+          bind:input="onHintInput"
+        />
+        <view class="hint-send-btn {{aiHint ? '' : 'hint-send-disabled'}}" bind:tap="onTextAnalyze">
+          <image class="hint-send-icon" src="/assets/icons/send.png" mode="aspectFit" />
+        </view>
+      </view>
+      <camera-button bind:tap="onCameraTap" />
+
+      <!-- 手动记录入口 -->
+      <view class="manual-section">
+        <text class="manual-toggle" bind:tap="toggleManualForm">{{manualExpanded ? '收起' : '手动记录一餐'}}</text>
+        <view wx:if="{{manualExpanded}}" class="manual-form">
+          <view class="manual-row">
+            <text class="manual-label">食物名称</text>
+            <input class="manual-input" value="{{manualForm.name}}" placeholder="手动记录" data-field="name" bind:input="onManualInput" />
+          </view>
+          <view class="manual-row">
+            <text class="manual-label">卡路里 <text class="manual-required">*</text></text>
+            <input class="manual-input" value="{{manualForm.calories}}" placeholder="千卡" type="digit" data-field="calories" bind:input="onManualInput" />
+          </view>
+          <view class="manual-row">
+            <text class="manual-label">蛋白质</text>
+            <input class="manual-input" value="{{manualForm.protein}}" placeholder="0 克" type="digit" data-field="protein" bind:input="onManualInput" />
+          </view>
+          <view class="manual-row">
+            <text class="manual-label">碳水化合物</text>
+            <input class="manual-input" value="{{manualForm.carbs}}" placeholder="0 克" type="digit" data-field="carbs" bind:input="onManualInput" />
+          </view>
+          <view class="manual-row">
+            <text class="manual-label">脂肪</text>
+            <input class="manual-input" value="{{manualForm.fat}}" placeholder="0 克" type="digit" data-field="fat" bind:input="onManualInput" />
+          </view>
+          <button class="manual-save-btn" bind:tap="onManualSave">生成记录</button>
+        </view>
+      </view>
+
+      <!-- 昨天也吃了？（快捷复用昨天的餐食） -->
+      <view wx:if="{{yesterdayMeals.length > 0}}" class="yesterday-section">
+        <text class="section-label">昨天也吃了？</text>
+        <view class="yesterday-list">
+          <view
+            wx:for="{{yesterdayMeals}}"
+            wx:key="id"
+            class="yesterday-item"
+          >
+            <view class="yesterday-info">
+              <text class="yesterday-name">{{item.name}}</text>
+              <text class="yesterday-cal">{{item.calories}} kcal</text>
+            </view>
+            <view class="yesterday-add-btn" data-idx="{{index}}" bind:tap="onAddYesterdayMeal">添加</view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+  </view>
+
+  <!-- ══════════════ LOADING 状态 ══════════════ -->
+  <view wx:elif="{{state === 'loading'}}" class="loading-page">
+
+    <!-- 扫描框气泡（轻量装饰） -->
+    <view class="lp-scan">
+      <view class="lp-scan-frame">
+        <view class="lp-scan-corner lp-scan-tl"></view>
+        <view class="lp-scan-corner lp-scan-tr"></view>
+        <view class="lp-scan-corner lp-scan-bl"></view>
+        <view class="lp-scan-corner lp-scan-br"></view>
+        <text class="lp-scan-heart">🤍</text>
+      </view>
+      <text class="lp-scan-label">{{loadingText}}</text>
+    </view>
+
+    <!-- 主插画区（核心视觉） -->
+    <view class="lp-hero-wrap">
+      <image class="lp-hero" src="/assets/icons/loading-hero.png" mode="widthFix" />
+    </view>
+
+    <!-- 文案组 -->
+    <view class="lp-text-group">
+      <text class="lp-title">正在识别美食中 🤍</text>
+      <text class="lp-subtitle">请稍候，马上为你呈现结果～</text>
+    </view>
+
+    <!-- 进度条卡片 -->
+    <view class="lp-progress-card">
+      <view class="lp-progress-track">
+        <view class="lp-progress-fill" style="width: {{loadingProgress || 8}}%"></view>
+      </view>
+    </view>
+
+    <!-- 底部提示胶囊 -->
+    <view class="lp-tip">
+      <text class="lp-tip-leaf">🌿</text>
+      <text class="lp-tip-text">健康饮食，记录美好生活每一刻</text>
+    </view>
+
+  </view>
+
+  <!-- ══════════════ RESULT 状态 ══════════════ -->
+  <view wx:elif="{{state === 'result'}}" class="result-page">
+    <view class="result-header">
+      <text class="result-title">{{foodData.source === 'manual' ? '手动记录' : '识别完成'}}</text>
+    </view>
+
+    <view class="result-card-wrap">
+      <food-card
+        name="{{foodData.name}}"
+        calories="{{foodData.calories}}"
+        protein="{{foodData.protein}}"
+        fat="{{foodData.fat}}"
+        carbs="{{foodData.carbs}}"
+        dishes="{{foodData.dishes}}"
+        imageUrl="{{foodData.previewImageUrl || foodData.imageUrl}}"
+      />
+    </view>
+
+    <!-- 识别后修改入口 -->
+    <view class="modify-section">
+      <view class="modify-chips">
+        <view class="modify-chip {{refineExpanded ? 'active' : ''}}" bind:tap="onRefineToggle">
+          <text>补充说明再识别</text>
+        </view>
+        <view class="modify-chip {{editExpanded ? 'active' : ''}}" bind:tap="onEditToggle">
+          <text>手动改数据</text>
+        </view>
+      </view>
+
+      <!-- 补充提示词面板 -->
+      <view wx:if="{{refineExpanded}}" class="modify-panel">
+        <textarea
+          class="modify-textarea"
+          value="{{refineHint}}"
+          placeholder="例如：去掉酱料 / 这是双层不是单层 / 肉饼其实是鸡肉"
+          placeholder-class="hint-placeholder"
+          maxlength="80"
+          auto-height
+          show-confirm-bar="{{false}}"
+          bind:input="onRefineHintInput"
+        />
+        <button class="modify-save-btn" bind:tap="onRefineAnalyze">重新识别</button>
+      </view>
+
+      <!-- 手动改数据面板 -->
+      <view wx:if="{{editExpanded}}" class="modify-panel">
+        <view class="manual-row">
+          <text class="manual-label">名称</text>
+          <input class="manual-input" value="{{editForm.name}}" data-field="name" bind:input="onEditInput" />
+        </view>
+        <view class="manual-row">
+          <text class="manual-label">卡路里 <text class="manual-required">*</text></text>
+          <input class="manual-input" value="{{editForm.calories}}" placeholder="千卡" type="digit" data-field="calories" bind:input="onEditInput" />
+        </view>
+        <view class="manual-row">
+          <text class="manual-label">蛋白质</text>
+          <input class="manual-input" value="{{editForm.protein}}" placeholder="0 克" type="digit" data-field="protein" bind:input="onEditInput" />
+        </view>
+        <view class="manual-row">
+          <text class="manual-label">碳水化合物</text>
+          <input class="manual-input" value="{{editForm.carbs}}" placeholder="0 克" type="digit" data-field="carbs" bind:input="onEditInput" />
+        </view>
+        <view class="manual-row">
+          <text class="manual-label">脂肪</text>
+          <input class="manual-input" value="{{editForm.fat}}" placeholder="0 克" type="digit" data-field="fat" bind:input="onEditInput" />
+        </view>
+        <text wx:if="{{foodData.dishes && foodData.dishes.length}}" class="modify-tip">
+          手动修改后，明细与总热量可能不一致
+        </text>
+        <button class="modify-save-btn" bind:tap="onEditSave">保存修改</button>
+      </view>
+    </view>
+
+    <!-- 份量快捷调整 -->
+    <view class="ratio-section">
+      <text class="ratio-title">吃了多少？</text>
+      <view class="ratio-buttons">
+        <button class="ratio-btn {{portionRatio === 1      ? 'active' : ''}}" data-ratio="1"      bind:tap="onRatioTap">全部</button>
+        <button class="ratio-btn {{portionRatio === 0.5    ? 'active' : ''}}" data-ratio="0.5"    bind:tap="onRatioTap">1/2</button>
+        <button class="ratio-btn {{portionRatio === 0.6667 ? 'active' : ''}}" data-ratio="0.6667" bind:tap="onRatioTap">2/3</button>
+        <button class="ratio-btn {{portionRatio === 0.3333 ? 'active' : ''}}" data-ratio="0.3333" bind:tap="onRatioTap">1/3</button>
+      </view>
+    </view>
+
+    <!-- 同步给 Ta -->
+    <view class="share-section">
+      <text class="share-title">这顿要同步给 Ta 吗？</text>
+      <view class="share-mode-row">
+        <view class="share-chip {{shareMode === 'solo' ? 'active' : ''}}" data-mode="solo" bind:tap="onShareModeChange">
+          <text>只记录给我</text>
+        </view>
+        <view class="share-chip {{shareMode === 'ta_only' ? 'active' : ''}}" data-mode="ta_only" bind:tap="onShareModeChange">
+          <text>只给Ta记</text>
+        </view>
+        <view class="share-chip {{shareMode !== 'solo' && shareMode !== 'ta_only' ? 'active' : ''}}" data-mode="shared" bind:tap="onShareModeChange">
+          <text>一起吃</text>
+        </view>
+      </view>
+      <view wx:if="{{shareMode !== 'solo' && shareMode !== 'ta_only'}}" class="split-section">
+        <text class="split-title">怎么分？</text>
+        <view class="split-row">
+          <view class="split-chip {{shareMode === 'half' ? 'active' : ''}}" data-mode="half" bind:tap="onSplitTap">
+            <text>一人一半</text>
+          </view>
+          <view class="split-chip {{shareMode === 'me_1_3' ? 'active' : ''}}" data-mode="me_1_3" bind:tap="onSplitTap">
+            <text>我 1/3 · Ta 2/3</text>
+          </view>
+          <view class="split-chip {{shareMode === 'me_2_3' ? 'active' : ''}}" data-mode="me_2_3" bind:tap="onSplitTap">
+            <text>我 2/3 · Ta 1/3</text>
+          </view>
+        </view>
+        <view class="share-preview">
+          <text class="share-preview-me">我 {{sharePreview.meCalories}} kcal</text>
+          <text class="share-preview-sep">·</text>
+          <text class="share-preview-ta">Ta {{sharePreview.taCalories}} kcal</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="result-actions">
+      <button class="primary-btn result-save-btn" bind:tap="onSave">记录这一餐</button>
+      <button class="btn-ghost" bind:tap="onRetake">重新拍摄</button>
+    </view>
+  </view>
+
+</view>

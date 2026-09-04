@@ -1,0 +1,12 @@
+{
+  "name": "trainingService",
+  "version": "1.0.0",
+  "description": "训练功能云函数服务",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}

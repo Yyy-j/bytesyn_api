@@ -1,0 +1,235 @@
+<!-- pages/training-exercise/training-exercise.wxml — 动作选择页 -->
+<view class="page">
+
+  <!-- ══════════════ Loading 状态 ══════════════ -->
+  <view wx:if="{{state === 'loading'}}" class="state-container">
+    <view class="loading-box">
+      <view class="loading-spinner"></view>
+      <text class="loading-text">加载中...</text>
+    </view>
+  </view>
+
+  <!-- ══════════════ 错误状态 ══════════════ -->
+  <view wx:elif="{{state === 'error'}}" class="state-container">
+    <view class="error-box card">
+      <text class="error-icon">⚠️</text>
+      <text class="error-msg">{{errorMsg}}</text>
+      <button class="retry-btn" bind:tap="onRetry">重试</button>
+    </view>
+  </view>
+
+  <!-- ══════════════ 正常内容 ══════════════ -->
+  <view wx:else class="content">
+    
+    <!-- 搜索栏 -->
+    <view class="search-bar">
+      <view class="search-box">
+        <text class="search-icon">🔍</text>
+        <input 
+          class="search-input" 
+          placeholder="搜索动作" 
+          value="{{searchKeyword}}"
+          bindinput="onSearchInput"
+        />
+        <text 
+          wx:if="{{searchKeyword}}" 
+          class="search-clear" 
+          bind:tap="onClearSearch"
+        >✕</text>
+      </view>
+    </view>
+
+    <!-- Tab 切换 -->
+    <view class="tabs">
+      <view 
+        class="tab {{currentTab === 'fixed' ? 'active' : ''}}" 
+        data-tab="fixed"
+        bind:tap="onTabChange"
+      >
+        <text>固定动作</text>
+      </view>
+      <view 
+        class="tab {{currentTab === 'custom' ? 'active' : ''}}" 
+        data-tab="custom"
+        bind:tap="onTabChange"
+      >
+        <text>我的动作</text>
+      </view>
+    </view>
+
+    <!-- 分类筛选 -->
+    <scroll-view class="category-bar" scroll-x enable-flex wx:if="{{currentTab === 'fixed'}}">
+      <view 
+        class="category-chip {{selectedCategory === '' ? 'active' : ''}}"
+        data-category=""
+        bind:tap="onCategoryChange"
+      >全部</view>
+      <view 
+        wx:for="{{categories}}" 
+        wx:key="*this"
+        class="category-chip {{selectedCategory === item ? 'active' : ''}}"
+        data-category="{{item}}"
+        bind:tap="onCategoryChange"
+      >{{item}}</view>
+    </scroll-view>
+
+    <!-- 动作列表 -->
+    <scroll-view class="exercise-list" scroll-y>
+      <!-- 自定义动作创建入口 -->
+      <view wx:if="{{currentTab === 'custom'}}" class="create-entry card" bind:tap="onShowCreateForm">
+        <text class="create-icon">+</text>
+        <text class="create-text">创建自定义动作</text>
+      </view>
+
+      <!-- 空状态 -->
+      <view wx:if="{{filteredExercises.length === 0}}" class="empty-box">
+        <text class="empty-icon">🏋️</text>
+        <text class="empty-text">{{currentTab === 'custom' ? '还没有自定义动作' : '没有找到匹配的动作'}}</text>
+      </view>
+
+      <!-- 动作卡片 -->
+      <view 
+        wx:for="{{filteredExercises}}" 
+        wx:key="id"
+        class="exercise-card card"
+      >
+        <view class="exercise-main" data-exercise="{{item}}" bind:tap="onSelectExercise">
+          <view class="exercise-info">
+            <text class="exercise-name">{{item.name}}</text>
+            <text class="exercise-english" wx:if="{{item.englishName}}">{{item.englishName}}</text>
+          </view>
+          <view class="exercise-meta">
+            <text class="exercise-category">{{item.category || '未分类'}}</text>
+            <text class="exercise-type {{item.itemType === 'cardio' ? 'cardio' : ''}}">
+              {{item.itemType === 'cardio' ? '有氧' : '力量'}}
+            </text>
+          </view>
+          <view class="exercise-defaults">
+            <text wx:if="{{item.itemType !== 'cardio'}}">
+              {{item.defaultSets || 4}}组 × {{item.defaultReps || 12}}次
+            </text>
+            <text wx:else>
+              {{item.defaultDuration || 30}}秒
+            </text>
+          </view>
+        </view>
+        <!-- 自定义动作操作区 -->
+        <view wx:if="{{currentTab === 'custom'}}" class="exercise-actions">
+          <view class="action-item video" data-exercise="{{item}}" catchtap="onManageExerciseVideos">
+            <text class="action-icon">🎬</text>
+            <text class="action-text">视频 {{item.videoLinks.length || 0}}/3</text>
+          </view>
+        </view>
+      </view>
+    </scroll-view>
+  </view>
+
+  <!-- ══════════════ 创建动作弹窗 ══════════════ -->
+  <view wx:if="{{showCreateForm}}" class="modal-mask" bind:tap="onHideCreateForm">
+    <view class="modal-content card" catchtap="onModalContentTap">
+      <view class="modal-header">
+        <text class="modal-title">创建自定义动作</text>
+        <text class="modal-close" catchtap="onHideCreateForm">✕</text>
+      </view>
+      
+      <scroll-view class="form-section" scroll-y>
+        <view class="form-row">
+          <text class="form-label">动作名称 *</text>
+          <input 
+            class="form-input" 
+            placeholder="请输入动作名称"
+            value="{{createForm.name}}"
+            data-field="name"
+            bindinput="onCreateFormInput"
+          />
+        </view>
+
+        <view class="form-row">
+          <text class="form-label">分类</text>
+          <input 
+            class="form-input" 
+            placeholder="默认: 其他"
+            value="{{createForm.category}}"
+            data-field="category"
+            bindinput="onCreateFormInput"
+          />
+        </view>
+
+        <view class="form-row">
+          <text class="form-label">类型</text>
+          <view class="type-selector">
+            <view 
+              class="type-option {{createForm.itemType === 'strength' ? 'active' : ''}}"
+              data-type="strength"
+              catchtap="onItemTypeChange"
+            >力量</view>
+            <view 
+              class="type-option {{createForm.itemType === 'cardio' ? 'active' : ''}}"
+              data-type="cardio"
+              catchtap="onItemTypeChange"
+            >有氧/静态</view>
+          </view>
+        </view>
+
+        <!-- 力量类型参数 -->
+        <block wx:if="{{createForm.itemType === 'strength'}}">
+          <view class="form-row">
+            <text class="form-label">默认组数</text>
+            <input 
+              class="form-input" 
+              type="number"
+              placeholder="1-50"
+              value="{{createForm.defaultSets}}"
+              data-field="defaultSets"
+              bindinput="onCreateFormInput"
+            />
+          </view>
+          <view class="form-row">
+            <text class="form-label">默认次数</text>
+            <input 
+              class="form-input" 
+              type="number"
+              placeholder="1-999"
+              value="{{createForm.defaultReps}}"
+              data-field="defaultReps"
+              bindinput="onCreateFormInput"
+            />
+          </view>
+          <view class="form-row">
+            <text class="form-label">默认重量(kg)</text>
+            <input 
+              class="form-input" 
+              type="digit"
+              placeholder="可选"
+              value="{{createForm.defaultWeight}}"
+              data-field="defaultWeight"
+              bindinput="onCreateFormInput"
+            />
+          </view>
+        </block>
+
+        <!-- 有氧类型参数 -->
+        <block wx:else>
+          <view class="form-row">
+            <text class="form-label">默认时长(秒)</text>
+            <input 
+              class="form-input" 
+              type="number"
+              placeholder="1-1440"
+              value="{{createForm.defaultDuration}}"
+              data-field="defaultDuration"
+              bindinput="onCreateFormInput"
+            />
+          </view>
+        </block>
+      </scroll-view>
+
+      <view class="modal-footer safe-bottom">
+        <button class="primary-btn create-btn {{isCreating ? 'disabled' : ''}}" disabled="{{isCreating}}" catchtap="onCreateExercise">
+          {{isCreating ? '创建中...' : '创建动作'}}
+        </button>
+      </view>
+    </view>
+  </view>
+
+</view>

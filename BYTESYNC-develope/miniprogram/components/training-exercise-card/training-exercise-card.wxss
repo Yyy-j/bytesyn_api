@@ -1,0 +1,272 @@
+/* components/training-exercise-card/training-exercise-card.wxss — 训练打卡组件样式 */
+@import '/styles/variables.wxss';
+
+.exercise-card {
+  display: flex;
+  flex-direction: column;
+  padding: var(--spacing-md);
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+/* ── 头部 ── */
+.exercise-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding-bottom: var(--spacing-sm);
+}
+
+.exercise-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.exercise-name {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.exercise-category {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.exercise-progress {
+  display: flex;
+  align-items: center;
+}
+
+.progress-text {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.progress-text.completed {
+  color: var(--color-success);
+}
+
+/* ── 目标信息 ── */
+.exercise-target {
+  padding: var(--spacing-xs) 0;
+  border-bottom: 1rpx solid var(--color-border);
+  margin-bottom: var(--spacing-sm);
+}
+
+.target-item {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+/* ── 打卡按钮 ── */
+.checkin-section {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--spacing-xs) 0;
+}
+
+.checkin-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-sm) var(--spacing-lg);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: #fff;
+  background: var(--color-primary);
+  border: none;
+  border-radius: var(--radius-full);
+  min-width: 160rpx;
+}
+
+.checkin-btn.disabled {
+  background: var(--color-text-tertiary);
+}
+
+.checkin-btn::after {
+  border: none;
+}
+
+/* ── 输入区域 ── */
+.input-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md) 0;
+  border-top: 1rpx solid var(--color-border);
+  margin-top: var(--spacing-sm);
+}
+
+.input-row {
+  display: flex;
+  gap: var(--spacing-md);
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+  min-width: 120rpx;
+}
+
+.input-group.flex-1 {
+  flex: 1;
+}
+
+.input-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.input-field {
+  padding: var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+
+/* ── 已完成组详情 ── */
+.set-details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding-top: var(--spacing-sm);
+  border-top: 1rpx solid var(--color-border);
+  margin-top: var(--spacing-sm);
+}
+
+.set-detail-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) 0;
+}
+
+.set-number {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  min-width: 80rpx;
+}
+
+.set-info {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  flex: 1;
+}
+
+.set-remark {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  max-width: 200rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 编辑按钮 ── */
+.edit-btn {
+  font-size: var(--font-size-xs);
+  color: var(--color-primary);
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+/* ── 编辑表单 ── */
+.edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  width: 100%;
+  padding: var(--spacing-sm) 0;
+}
+
+.edit-row {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.edit-field {
+  flex: 1;
+  padding: var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+
+.edit-field.flex-1 {
+  flex: 1;
+  text-align: left;
+}
+
+.edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-md);
+  padding-top: var(--spacing-xs);
+}
+
+.edit-cancel {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+.edit-save {
+  font-size: var(--font-size-sm);
+  color: var(--color-primary);
+  font-weight: 600;
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+/* ── 视频链接 ── */
+.video-links {
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-sm);
+  border-top: 1rpx solid var(--color-border);
+}
+
+.video-links-header {
+  margin-bottom: var(--spacing-xs);
+}
+
+.video-links-title {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.video-link-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.video-link-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm);
+  background: var(--color-primary-light);
+  border-radius: var(--radius-sm);
+}
+
+.video-link-name {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  color: var(--color-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.video-link-arrow {
+  font-size: var(--font-size-lg);
+  color: var(--color-primary);
+  margin-left: var(--spacing-sm);
+}

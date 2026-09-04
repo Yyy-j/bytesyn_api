@@ -1,0 +1,6 @@
+{
+  "component": true,
+  "usingComponents": {
+    "macro-bar": "../macro-bar/macro-bar"
+  }
+}

@@ -1,0 +1,159 @@
+/* components/food-list-item/food-list-item.wxss */
+
+.food-list-item {
+  padding: var(--spacing-lg) var(--page-padding);
+  background: var(--color-bg-card);
+  border-bottom: 1rpx solid var(--color-border);
+  animation: item-fade 0.3s ease both;
+}
+
+@keyframes item-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.food-list-item:last-child {
+  border-bottom: none;
+}
+
+/* ── 第一行：食物名 + 时间 ── */
+.item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-xs);
+}
+
+.item-name {
+  font-size: var(--font-size-md);
+  font-weight: 500;
+  color: var(--color-text-primary);
+  flex: 1;
+}
+
+.item-time {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+  margin-left: var(--spacing-sm);
+}
+
+/* ── 第二行：热量 + 用户强调 ── */
+.item-row2 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-sm);
+}
+
+.item-calories {
+  font-size: var(--font-size-sm);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.user-badge {
+  padding: 4rpx 18rpx;
+  border-radius: var(--radius-full);
+}
+
+.user-badge.me { background: var(--color-me-light); }
+.user-badge.ta { background: var(--color-ta-light); }
+
+.user-badge-text {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+
+.user-badge.me .user-badge-text { color: var(--color-me); }
+.user-badge.ta .user-badge-text { color: var(--color-ta); }
+
+/* ── 第三行：宏量标签 + 删除 ── */
+.item-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.item-macros {
+  display: flex;
+  gap: 12rpx;
+  flex-wrap: wrap;
+}
+
+.macro-tag {
+  font-size: var(--font-size-xs);
+  padding: 4rpx 14rpx;
+  border-radius: var(--radius-full);
+}
+
+.macro-tag.protein { background: var(--color-protein-bg); color: var(--color-protein); }
+.macro-tag.carbs   { background: var(--color-carbs-bg);   color: var(--color-carbs);   }
+.macro-tag.fat     { background: var(--color-fat-bg);     color: var(--color-fat);     }
+
+.action-btns {
+  display: flex;
+  gap: 16rpx;
+  flex-shrink: 0;
+}
+
+.edit-btn {
+  font-size: var(--font-size-xs);
+  color: var(--color-primary, #6FCF97);
+  opacity: 0.8;
+  padding: 4rpx 8rpx;
+}
+
+.detail-btn {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  opacity: 0.8;
+  padding: 4rpx 8rpx;
+}
+
+.delete-btn {
+  font-size: var(--font-size-xs);
+  color: var(--color-warning, #EB5757);
+  opacity: 0.6;
+  padding: 4rpx 8rpx;
+}
+
+/* ── 卡路里明细（展开后） ── */
+.item-breakdown {
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: rgba(111, 207, 151, 0.06);
+  border-radius: var(--radius-md);
+}
+
+.item-breakdown .breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6rpx 0;
+}
+
+.item-breakdown .breakdown-name {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  flex: 1;
+  margin-right: var(--spacing-sm);
+}
+
+.item-breakdown .breakdown-cal {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+.item-breakdown .breakdown-total {
+  margin-top: 4rpx;
+  padding-top: 8rpx;
+  border-top: 1rpx dashed var(--color-border);
+}
+
+.item-breakdown .breakdown-total .breakdown-name,
+.item-breakdown .breakdown-total .breakdown-cal {
+  color: var(--color-primary-dark);
+  font-weight: 600;
+}

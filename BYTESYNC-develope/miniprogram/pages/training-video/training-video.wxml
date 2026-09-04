@@ -1,0 +1,78 @@
+<!-- pages/training-video/training-video.wxml — 教学视频管理页 -->
+<view class="video-page">
+  <!-- 视频列表 -->
+  <view class="video-list">
+    <view wx:if="{{videoLinks.length === 0}}" class="empty-tip">
+      <text>暂无教学视频</text>
+    </view>
+    
+    <view wx:for="{{videoLinks}}" wx:key="videoId" class="video-item">
+      <view class="video-info" data-index="{{index}}" bind:tap="onOpenVideo">
+        <text class="video-title">{{item.title}}</text>
+        <text class="video-url">{{item.url}}</text>
+      </view>
+      <view class="video-actions">
+        <text class="action-btn edit" data-index="{{index}}" bind:tap="onShowEditForm">编辑</text>
+        <text class="action-btn delete" data-index="{{index}}" bind:tap="onDeleteVideo">删除</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 添加按钮 -->
+  <view class="add-section">
+    <button 
+      class="add-btn {{videoLinks.length >= 3 ? 'disabled' : ''}}"
+      disabled="{{videoLinks.length >= 3 || state === 'saving'}}"
+      bind:tap="onShowAddForm"
+    >
+      + 添加视频 ({{videoLinks.length}}/3)
+    </button>
+  </view>
+
+  <!-- 添加/编辑表单弹窗 -->
+  <view wx:if="{{showForm}}" class="form-mask" bind:tap="onHideForm">
+    <view class="form-popup" catchtap="onFormPopupTap">
+      <view class="form-header">
+        <text class="form-title">{{isEditing ? '编辑视频' : '添加视频'}}</text>
+        <text class="form-close" catchtap="onHideForm">✕</text>
+      </view>
+      
+      <scroll-view class="form-body" scroll-y>
+        <view class="form-group">
+          <text class="form-label">视频标题</text>
+          <input 
+            class="form-input" 
+            type="text" 
+            placeholder="请输入标题（最多50字）" 
+            maxlength="50"
+            value="{{formTitle}}" 
+            bindinput="onTitleInput" 
+          />
+        </view>
+        
+        <view class="form-group">
+          <text class="form-label">视频链接</text>
+          <input 
+            class="form-input" 
+            type="text" 
+            placeholder="请输入 http:// 或 https:// 开头的URL" 
+            value="{{formUrl}}" 
+            bindinput="onUrlInput" 
+          />
+        </view>
+      </scroll-view>
+      
+      <view class="form-footer safe-bottom">
+        <button class="form-cancel-btn" catchtap="onHideForm">取消</button>
+        <button 
+          class="form-save-btn" 
+          loading="{{state === 'saving'}}"
+          disabled="{{state === 'saving'}}"
+          catchtap="onSaveForm"
+        >
+          {{state === 'saving' ? '保存中...' : '保存'}}
+        </button>
+      </view>
+    </view>
+  </view>
+</view>

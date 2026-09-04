@@ -1,0 +1,37 @@
+<!-- components/food-list-item/food-list-item.wxml -->
+<view class="food-list-item" bind:tap="onTap">
+  <view class="item-header">
+    <text class="item-name">{{name}}</text>
+    <text class="item-time">{{time}}</text>
+  </view>
+  <view class="item-row2">
+    <text class="item-calories">{{calories}} kcal</text>
+    <view wx:if="{{user}}" class="user-badge {{user}}">
+      <text class="user-badge-text">{{userName}}</text>
+    </view>
+  </view>
+  <view class="item-footer">
+    <view class="item-macros">
+      <text class="macro-tag protein">蛋白 {{protein}}g</text>
+      <text class="macro-tag carbs">碳水 {{carbs}}g</text>
+      <text class="macro-tag fat">脂肪 {{fat}}g</text>
+    </view>
+    <view class="action-btns">
+      <text wx:if="{{dishes && dishes.length}}" class="detail-btn" catchtap="onToggleDetail">
+        {{detailExpanded ? '收起' : '明细'}}
+      </text>
+      <text wx:if="{{canEdit}}" class="edit-btn" catchtap="onEditTap">修改</text>
+      <text wx:if="{{canDelete}}" class="delete-btn" catchtap="onDeleteTap">删除</text>
+    </view>
+  </view>
+  <view wx:if="{{detailExpanded && dishes && dishes.length}}" class="item-breakdown">
+    <view wx:for="{{dishes}}" wx:key="index" class="breakdown-row">
+      <text class="breakdown-name">{{item.name}}</text>
+      <text class="breakdown-cal">{{item.calories}} kcal</text>
+    </view>
+    <view class="breakdown-row breakdown-total">
+      <text class="breakdown-name">合计</text>
+      <text class="breakdown-cal">{{calories}} kcal</text>
+    </view>
+  </view>
+</view>

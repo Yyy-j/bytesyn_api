@@ -1,0 +1,6 @@
+{
+  "navigationBarTitleText": "训练历史",
+  "usingComponents": {
+    "training-exercise-card": "/components/training-exercise-card/training-exercise-card"
+  }
+}

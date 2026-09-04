@@ -1,0 +1,24 @@
+<!-- components/summary-card/summary-card.wxml -->
+<view class="summary-card {{role}}">
+  <view class="card-header">
+    <text class="user-name">{{userName}}</text>
+    <text class="pct-label">{{caloriePct}}%</text>
+  </view>
+
+  <view class="cal-block">
+    <text class="cal-current">{{calories}}</text>
+    <text class="cal-unit"> kcal</text>
+  </view>
+  <text class="cal-goal">/ {{calorieGoal}} 目标</text>
+
+  <view class="card-divider"></view>
+
+  <macro-bar
+    protein="{{protein}}"
+    carbs="{{carbs}}"
+    fat="{{fat}}"
+    proteinGoal="{{proteinGoal}}"
+    carbsGoal="{{carbsGoal}}"
+    fatGoal="{{fatGoal}}"
+  />
+</view>

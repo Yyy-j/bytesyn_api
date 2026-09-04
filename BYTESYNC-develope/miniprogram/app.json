@@ -1,0 +1,47 @@
+{
+  "pages": [
+    "pages/record/record",
+    "pages/summary/summary",
+    "pages/training/training",
+    "pages/training-template/training-template",
+    "pages/training-exercise/training-exercise",
+    "pages/training-history/training-history",
+    "pages/training-video/training-video",
+    "pages/training-webview/training-webview",
+    "pages/pairing/pairing"
+  ],
+  "tabBar": {
+    "color": "#BEBEBE",
+    "selectedColor": "#6FCF97",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/record/record",
+        "text": "记录",
+        "iconPath": "assets/icons/record.png",
+        "selectedIconPath": "assets/icons/record-active.png"
+      },
+      {
+        "pagePath": "pages/summary/summary",
+        "text": "今日",
+        "iconPath": "assets/icons/summary.png",
+        "selectedIconPath": "assets/icons/summary-active.png"
+      },
+      {
+        "pagePath": "pages/training/training",
+        "text": "训练",
+        "iconPath": "assets/icons/summary.png",
+        "selectedIconPath": "assets/icons/summary-active.png"
+      }
+    ]
+  },
+  "window": {
+    "backgroundTextStyle": "light",
+    "navigationBarBackgroundColor": "#ffffff",
+    "navigationBarTitleText": "BiteSync",
+    "navigationBarTextStyle": "black"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

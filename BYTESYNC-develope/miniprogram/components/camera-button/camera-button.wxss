@@ -1,0 +1,32 @@
+/* components/camera-button/camera-button.wxss */
+
+.camera-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.camera-icon-wrap {
+  width: 176rpx;
+  height: 176rpx;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-btn);
+}
+
+.camera-icon {
+  font-size: 68rpx;
+  color: #ffffff;
+  line-height: 1;
+  font-weight: 300;
+}
+
+.camera-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  letter-spacing: 2rpx;
+}

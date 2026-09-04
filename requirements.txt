@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+psycopg[binary]
+google-auth>=2.35,<3
+requests>=2.32,<3
+PyJWT>=2.9,<3

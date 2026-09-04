@@ -1,0 +1,8 @@
+{
+  "usingComponents": {
+    "summary-card":  "../../components/summary-card/summary-card",
+    "date-switcher": "../../components/date-switcher/date-switcher",
+    "food-list-item": "../../components/food-list-item/food-list-item"
+  },
+  "navigationBarTitleText": "今日"
+}

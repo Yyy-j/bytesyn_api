@@ -1,0 +1,7 @@
+<!-- components/camera-button/camera-button.wxml -->
+<view class="camera-btn" bind:tap="onTap">
+  <view class="camera-icon-wrap">
+    <text class="camera-icon">＋</text>
+  </view>
+  <text class="camera-label">拍一餐</text>
+</view>

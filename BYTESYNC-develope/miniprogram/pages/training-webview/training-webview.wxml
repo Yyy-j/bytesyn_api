@@ -1,0 +1,4 @@
+<!-- pages/training-webview/training-webview.wxml — 视频 WebView 页 -->
+<view class="webview-page">
+  <web-view wx:if="{{url}}" src="{{url}}" bindError="onError"></web-view>
+</view>

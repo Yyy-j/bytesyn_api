@@ -1,0 +1,8 @@
+{
+  "usingComponents": {
+    "camera-button": "../../components/camera-button/camera-button",
+    "food-list-item": "../../components/food-list-item/food-list-item",
+    "food-card": "../../components/food-card/food-card"
+  },
+  "navigationBarTitleText": "记录"
+}

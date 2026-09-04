@@ -1,0 +1,6 @@
+<!-- components/date-switcher/date-switcher.wxml -->
+<view class="date-switcher">
+  <view class="arrow" bind:tap="onPrev">‹</view>
+  <text class="date-text">{{displayDate}}</text>
+  <view class="arrow next" bind:tap="onNext">›</view>
+</view>
