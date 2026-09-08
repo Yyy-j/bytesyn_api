@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from psycopg import Error as PsycopgError
 
 from app.auth import router as auth_router
+from app.ai_meals import router as ai_meals_router
 from app.db import get_connection
 from app.pairs import router as pairs_router
 from app.meals import router as meals_router
@@ -15,6 +16,7 @@ app.include_router(users_router)
 app.include_router(pairs_router)
 app.include_router(meals_router)
 app.include_router(summary_router)
+app.include_router(ai_meals_router)
 
 
 @app.exception_handler(PsycopgError)
