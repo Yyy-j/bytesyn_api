@@ -7,12 +7,14 @@ from app.db import get_connection
 from app.pairs import router as pairs_router
 from app.meals import router as meals_router
 from app.users import router as users_router
+from app.summary import router as summary_router
 
 app = FastAPI(title="BYTESYNC API")
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(pairs_router)
 app.include_router(meals_router)
+app.include_router(summary_router)
 
 
 @app.exception_handler(PsycopgError)
