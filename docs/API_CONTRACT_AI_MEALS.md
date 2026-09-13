@@ -87,8 +87,9 @@ timeout and one attempt (no automatic retries). The client is closed after each
 call. The router only authenticates, validates input/output and maps errors.
 Implementation follows Google's [structured output documentation](https://ai.google.dev/gemini-api/docs/structured-output).
 
-No image recognition, refinement, meal persistence, Flutter changes or production
-mock is included.
+Image recognition is documented separately in
+[API_CONTRACT_AI_IMAGES.md](API_CONTRACT_AI_IMAGES.md). No refinement, meal
+persistence, Flutter changes or production mock is included.
 
 ## Automated verification
 

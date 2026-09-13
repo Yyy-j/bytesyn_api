@@ -29,3 +29,7 @@ class MealEstimate(BaseModel):
 
 class AnalyzeTextResponse(MealEstimate):
     source: Literal['text'] = 'text'
+
+
+class AnalyzeImageResponse(MealEstimate):
+    source: Literal['ai'] = 'ai'
