@@ -40,7 +40,9 @@ names are nonblank strings of at most 255 characters. The dishes array is requir
 and contains 1..50 validated objects. Unexpected AI fields are rejected.
 `source` is set by the server, never taken from model output.
 
-Gemini structured output uses MealEstimate's Pydantic schema. The returned raw JSON
+Gemini structured output passes MealEstimate.model_json_schema() through
+response_json_schema, preserving JSON Schema keywords such as additionalProperties
+and nested dish definitions without SDK Schema-field conversion. The returned raw JSON
 is independently validated with MealEstimate.model_validate_json before building
 the API response; schema guidance alone is not trusted. Food descriptions are
 passed as user content, separate from system instructions. The prompt requests
@@ -65,11 +67,15 @@ failure or invalid response; there is no fabricated fallback estimate.
 
 ```dotenv
 GEMINI_API_KEY=<your Google Gemini API key>
-AI_MODEL=gemini-2.5-flash
+AI_MODEL=gemini-3.6-flash
 ```
 
-The model defaults to gemini-2.5-flash if AI_MODEL is unset/blank. The key is read
-explicitly from GEMINI_API_KEY. Add these variables to the deployment environment
+The model defaults to gemini-3.6-flash if AI_MODEL is unset/blank. The key is read
+explicitly from GEMINI_API_KEY. Only gemini-2.5-flash and gemini-2.5-flash-lite
+receive thinking_budget=0; other models use provider defaults. Model names with
+the models/ prefix are supported. Gemini 2.5 Pro cannot disable thinking, as
+documented in Google's [thinking configuration guide](https://ai.google.dev/gemini-api/docs/generate-content/thinking).
+Add these variables to the deployment environment
 (.env.runtime on the NAS) and recreate the API container after building the new
 image. No secret is committed and no migration is needed. Missing AI configuration
 does not prevent Auth, Meals or Summary from starting.
@@ -82,11 +88,12 @@ call. The router only authenticates, validates input/output and maps errors.
 Implementation follows Google's [structured output documentation](https://ai.google.dev/gemini-api/docs/structured-output).
 
 No image recognition, refinement, meal persistence, Flutter changes or production
-mock is included. This change has not been deployed or tested against live Gemini.
+mock is included.
 
 ## Automated verification
 
-98 passed in 5.20s: 29 AI cases plus all 69 existing Meals/Summary regression cases.
+2026-09-13 compatibility repair: 105 passed in 4.61s, comprising 36 AI cases
+plus all 69 existing Meals/Summary regression cases.
 Two existing test-dependency deprecation warnings, no failures.
 AI endpoint tests inject a fake provider defined only in tests. Adapter tests
 use the actual google-genai 1.75.0 SDK with httpx.MockTransport to verify local
@@ -97,3 +104,9 @@ Coverage: success, text trimming/validation, authentication before inference,
 controlled provider failure, malformed/missing/negative/non-finite values,
 invalid dish data, fixed source, missing key, model default, SDK timeout/retry
 configuration and sanitized adapter errors.
+
+Additional adapter coverage checks blank model fallback, whitespace trimming,
+models/ prefixes, Flash Lite, Pro without a forced thinking budget, and a
+synthetic model name for configuration passthrough. Synthetic names do not
+assert availability in Gemini. The repair was deployed on 2026-09-13 and a live
+Gemini request using gemini-3.6-flash returned a schema-valid meal estimate.

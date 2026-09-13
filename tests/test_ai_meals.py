@@ -99,8 +99,19 @@ def test_missing_key_is_controlled(monkeypatch):
     assert response.json() == {'detail':'AI service unavailable'}
 
 
-@pytest.mark.parametrize('model', [None, 'gemini-2.5-flash'])
-def test_real_sdk_adapter_with_fake_transport(monkeypatch, model):
+@pytest.mark.parametrize('model, expected_model, disable_thinking', [
+    (None, 'gemini-3.6-flash', False),
+    ('', 'gemini-3.6-flash', False),
+    ('   ', 'gemini-3.6-flash', False),
+    ('gemini-2.5-flash', 'gemini-2.5-flash', True),
+    (' models/gemini-2.5-flash ', 'gemini-2.5-flash', True),
+    ('gemini-2.5-flash-lite', 'gemini-2.5-flash-lite', True),
+    ('gemini-2.5-pro', 'gemini-2.5-pro', False),
+    ('models/gemini-2.5-pro', 'gemini-2.5-pro', False),
+    # Synthetic model name tests passthrough, not upstream model availability.
+    ('gemini-3.6-flash', 'gemini-3.6-flash', False),
+])
+def test_real_sdk_adapter_with_fake_transport(monkeypatch, model, expected_model, disable_thinking):
     # Exercises SDK request/schema conversion without sending any network traffic.
     monkeypatch.setenv('GEMINI_API_KEY', 'test-key-only')
     if model is None:
@@ -115,8 +126,19 @@ def test_real_sdk_adapter_with_fake_transport(monkeypatch, model):
         body = json.loads(request.content)
         assert body['contents'][0]['parts'][0]['text'] == '米饭'
         assert body['generationConfig']['responseMimeType'] == 'application/json'
-        assert 'responseSchema' in body['generationConfig']
-        assert request.url.path.endswith('/models/gemini-2.5-flash:generateContent')
+        assert 'responseSchema' not in body['generationConfig']
+        schema = body['generationConfig']['responseJsonSchema']
+        assert schema['additionalProperties'] is False
+        assert schema['$defs']['DishEstimate']['additionalProperties'] is False
+        assert 'additional_properties' not in json.dumps(schema)
+        assert request.url.path.endswith(f'/models/{expected_model}:generateContent')
+        if disable_thinking:
+            # SDK releases use either protobuf field names or JSON aliases.
+            assert body['generationConfig']['thinkingConfig'] in (
+                {'thinking_budget': 0}, {'thinkingBudget': 0},
+            )
+        else:
+            assert body['generationConfig'].get('thinkingConfig') is None
         return httpx.Response(200, json={'candidates':[{'content':{'role':'model',
             'parts':[{'text':json.dumps(ESTIMATE)}]}, 'finishReason':'STOP'}]})
 

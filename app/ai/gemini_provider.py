@@ -25,7 +25,7 @@ class GeminiProvider:
         key = os.environ.get('GEMINI_API_KEY', '').strip()
         if not key:
             raise AIUnavailable() from None
-        model = os.environ.get('AI_MODEL', 'gemini-2.5-flash').strip() or 'gemini-2.5-flash'
+        model = os.environ.get('AI_MODEL', 'gemini-3.6-flash').strip() or 'gemini-3.6-flash'
         try:
             with genai.Client(
                 api_key=key,
@@ -48,9 +48,17 @@ class GeminiProvider:
                             'Only estimate food; if no food can be identified, return no estimate.'
                         ),
                         response_mime_type='application/json',
-                        response_schema=MealEstimate,
+                        response_json_schema=MealEstimate.model_json_schema(),
                         max_output_tokens=4096,
-                        thinking_config=types.ThinkingConfig(thinking_budget=0),
+                        # Only these known Flash models support disabling thinking.
+                        # Pro and other models retain their provider defaults.
+                        thinking_config=(
+                            types.ThinkingConfig(thinking_budget=0)
+                            if model.removeprefix('models/') in {
+                                'gemini-2.5-flash', 'gemini-2.5-flash-lite',
+                            }
+                            else None
+                        ),
                     ),
                 )
                 return response.text or ''
