@@ -68,7 +68,8 @@ def get_user_identity(user_id: UUID) -> dict[str, object] | None:
         with conn.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT u.id, ai.provider, ai.email
+                SELECT u.id, ai.provider, ai.email, u.display_name, u.avatar_url,
+                       u.calorie_goal, u.protein_goal, u.carbs_goal, u.fat_goal
                 FROM users AS u
                 JOIN auth_identities AS ai ON ai.user_id = u.id
                 WHERE u.id = %s

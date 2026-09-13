@@ -127,16 +127,24 @@ def test_summary_invalid_date(context, params):
 
 def test_summary_nas_display_names(context):
     users = context[1]
-    # Match NAS's optional column while the rest of the suite uses minimal migrations.
     with get_connection() as conn:
-        conn.execute("ALTER TABLE users ADD COLUMN display_name VARCHAR DEFAULT ''")
         conn.execute('UPDATE users SET display_name = %s WHERE id = %s', ('小明',users[0]))
         conn.execute('UPDATE users SET display_name = %s WHERE id = %s', ('小红',users[1]))
-    try:
-        result = summary(context, users[0])
-        assert result['self_slice']['display_name'] == '小明'
-        assert result['partner_slice']['display_name'] == '小红'
-        assert summary(context, users[2])['self_slice']['display_name'] == '未命名成员'
-    finally:
-        with get_connection() as conn:
-            conn.execute('ALTER TABLE users DROP COLUMN display_name')
+    result = summary(context, users[0])
+    assert result['self_slice']['display_name'] == '小明'
+    assert result['partner_slice']['display_name'] == '小红'
+    assert summary(context, users[2])['self_slice']['display_name'] == '未命名成员'
+
+
+def test_summary_uses_member_goals_with_per_field_fallback(context):
+    users = context[1]
+    with get_connection() as conn:
+        conn.execute('''UPDATE users SET calorie_goal = 2200, protein_goal = 120,
+            carbs_goal = NULL, fat_goal = 65 WHERE id = %s''', (users[0],))
+        conn.execute('''UPDATE users SET calorie_goal = 1800, protein_goal = NULL,
+            carbs_goal = 200, fat_goal = 55 WHERE id = %s''', (users[1],))
+    result = summary(context, users[0])
+    assert result['self_goals'] == {
+        'calorie_goal':2200, 'protein_goal':120, 'carbs_goal':250, 'fat_goal':65}
+    assert result['partner_goals'] == {
+        'calorie_goal':1800, 'protein_goal':90, 'carbs_goal':200, 'fat_goal':55}

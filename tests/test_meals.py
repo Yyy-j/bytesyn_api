@@ -24,7 +24,8 @@ def group(meal):
 
 
 @pytest.mark.parametrize('method,path', [('post','/meals'), ('get','/meals?date=2026-09-08'),
-    ('get','/meals/recent'), ('get',f'/meals/{uuid4()}'), ('patch',f'/meals/{uuid4()}'),
+    ('get','/meals/recent'), ('get','/meals/reuse?date=2026-09-08'),
+    ('get',f'/meals/{uuid4()}'), ('patch',f'/meals/{uuid4()}'),
     ('delete',f'/meals/{uuid4()}')])
 def test_unauthenticated(context, method, path):
     client, _, _ = context
@@ -38,6 +39,7 @@ def test_solo_crud_and_recent(context):
     assert meal['base_calories'] == 123.456789 and meal['calories'] == 154.32
     assert meal['shared_meal_id'] is None and meal['share_ratio'] == 1
     assert meal['meal_time'] == '12:30'
+    assert meal['dishes'] == [] and meal['ai_hint'] is None and meal['original_input'] is None
     datetime.fromisoformat(meal['updated_at'])
     with get_connection() as conn:
         assert conn.execute('SELECT base_calories FROM meals WHERE id = %s', (meal['id'],)).fetchone()['base_calories'] == Decimal('123.456789')
@@ -132,6 +134,18 @@ def test_shared_failure_rolls_back(context, operation):
 def test_invalid_input(context, change):
     client, users, _ = context
     assert client.post('/meals', headers=headers(users[0]), json=payload(**change)).status_code == 422
+
+
+@pytest.mark.parametrize('metadata', [
+    {'dishes':[{'name':str(i), 'calories':1} for i in range(11)]},
+    {'dishes':[{'name':'rice', 'calories':-1}]},
+    {'dishes':[{'name':' ', 'calories':1}]},
+    {'dishes':[{'name':'rice', 'calories':'NaN'}]},
+])
+def test_invalid_ai_metadata(context, metadata):
+    client, users, _ = context
+    assert client.post('/meals', headers=headers(users[0]),
+                       json=payload(**metadata)).status_code == 422
 
 
 @pytest.mark.parametrize('query', ['limit=0','limit=11','limit=x'])
@@ -242,14 +256,86 @@ def test_sources(context, source):
     assert create(context, source=source)['source'] == source
 
 
+def test_ai_metadata_round_trip_and_patch(context):
+    client, users, _ = context
+    text = create(context, source='text', original_input='午饭吃了鸡肉咖喱饭')
+    assert text['original_input'] == '午饭吃了鸡肉咖喱饭'
+    assert client.get('/meals/'+text['id'], headers=headers(users[0])).json() == text
+
+    image = create(context, source='ai', dishes=[
+        {'name':'米饭', 'calories':300}, {'name':'咖喱鸡肉', 'calories':420}],
+        ai_hint='米饭只有半碗')
+    listed = client.get('/meals', headers=headers(users[0]),
+                        params={'date':image['meal_date']}).json()['meals']
+    stored = next(meal for meal in listed if meal['id'] == image['id'])
+    assert stored['dishes'] == [
+        {'name':'米饭', 'calories':300}, {'name':'咖喱鸡肉', 'calories':420}]
+    assert stored['ai_hint'] == '米饭只有半碗' and stored['original_input'] is None
+
+    patched = client.patch('/meals/'+image['id'], headers=headers(users[0]), json={
+        'dishes':[{'name':'咖喱', 'calories':500}], 'ai_hint':None,
+        'original_input':'corrected'} )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()['dishes'] == [{'name':'咖喱', 'calories':500}]
+    assert patched.json()['ai_hint'] is None
+    assert patched.json()['original_input'] == 'corrected'
+
+
+def test_shared_meal_metadata_stays_identical(context):
+    client, users, _ = context
+    meal = create(context, share_mode='shared_half',
+                  dishes=[{'name':'饭', 'calories':600}], ai_hint='两人分食')
+    rows = group(meal)
+    assert rows[0]['dishes'] == rows[1]['dishes']
+    sibling_id = str(next(row for row in rows if row['user_id'] == users[1])['id'])
+    response = client.patch('/meals/'+sibling_id, headers=headers(users[1]), json={
+        'dishes':[{'name':'饭', 'calories':500}], 'ai_hint':'修正',
+        'original_input':'shared input'})
+    assert response.status_code == 200, response.text
+    rows = group(meal)
+    for key in ['name', 'base_calories', 'base_protein', 'base_carbs', 'base_fat',
+                'portion_ratio', 'share_mode', 'dishes', 'ai_hint', 'original_input']:
+        assert rows[0][key] == rows[1][key]
+
+
+def test_reuse_is_date_scoped_owned_ordered_and_limited(context):
+    client, users, _ = context
+    own = create(context, name='own', meal_time='10:00')
+    partner = client.post('/meals', headers=headers(users[1]),
+                          json=payload(name='partner', meal_time='20:00')).json()
+    shared = create(context, name='shared', meal_time='18:00', share_mode='shared_half')
+    other_date = create(context, name='other date', meal_time='23:00')
+    target = '2026-09-13'
+    with get_connection() as conn:
+        conn.execute('UPDATE meals SET meal_date = %s WHERE id = %s', (target, own['id']))
+        conn.execute('UPDATE meals SET meal_date = %s WHERE id = %s', (target, partner['id']))
+        conn.execute('UPDATE meals SET meal_date = %s WHERE shared_meal_id = %s',
+                     (target, shared['shared_meal_id']))
+        conn.execute('UPDATE meals SET meal_date = %s WHERE id = %s',
+                     ('2026-09-12', other_date['id']))
+    result = client.get('/meals/reuse', headers=headers(users[0]),
+                        params={'date':target, 'limit':10}).json()['meals']
+    assert [meal['name'] for meal in result] == ['shared', 'own']
+    assert all(meal['user_id'] == str(users[0]) for meal in result)
+    assert sum(meal['shared_meal_id'] == shared['shared_meal_id'] for meal in result) == 1
+    limited = client.get('/meals/reuse', headers=headers(users[0]),
+                         params={'date':target, 'limit':1}).json()['meals']
+    assert [meal['name'] for meal in limited] == ['shared']
+    assert client.get('/meals/reuse', headers=headers(users[3]),
+                      params={'date':target}).status_code == 404
+
+
 def test_clean_database_migration():
     with get_connection() as conn:
         conn.execute('CREATE SCHEMA clean_compat')
         conn.execute('SET search_path TO clean_compat')
         try:
-            for filename in ['001_auth_mvp.sql', '002_pairs.sql', '003_meals_mvp.sql', '003_meals_mvp.sql']:
+            for filename in ['001_auth_mvp.sql', '002_pairs.sql', '003_meals_mvp.sql',
+                             '004_user_profile_goals.sql', '005_meal_ai_metadata.sql',
+                             '004_user_profile_goals.sql', '005_meal_ai_metadata.sql']:
                 conn.execute((ROOT/'app/migrations'/filename).read_text())
             assert conn.execute('SELECT count(*) AS n FROM meals').fetchone()['n'] == 0
+            assert conn.execute("SELECT count(*) AS n FROM schema_migrations WHERE version IN ('004_user_profile_goals', '005_meal_ai_metadata')").fetchone()['n'] == 2
         finally:
             conn.execute('SET search_path TO public')
             conn.execute('DROP SCHEMA clean_compat CASCADE')

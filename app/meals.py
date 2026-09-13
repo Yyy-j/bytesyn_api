@@ -8,8 +8,9 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.encoders import jsonable_encoder
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 from psycopg import sql
+from psycopg.types.json import Jsonb
 
 from app.auth import get_current_user_id
 from app.db import connection
@@ -26,7 +27,16 @@ RATIOS = {'solo': Fraction(1), 'partner_only': Fraction(0), 'shared_half': Fract
           'shared_me_one_third': Fraction(1, 3), 'shared_me_two_thirds': Fraction(2, 3)}
 PUBLIC = ('id', 'pair_id', 'user_id', 'shared_meal_id', 'name', 'source',
           *(f'base_{m}' for m in MACROS), *MACROS, 'portion_ratio', 'share_ratio',
-          'share_mode', 'meal_date', 'meal_time', 'created_at', 'updated_at')
+          'share_mode', 'meal_date', 'meal_time', 'dishes', 'ai_hint', 'original_input',
+          'created_at', 'updated_at')
+REQUIRED_PUBLIC = tuple(key for key in PUBLIC
+                        if key not in ('shared_meal_id', 'dishes', 'ai_hint', 'original_input'))
+
+
+class Dish(BaseModel):
+    model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
+    calories: Macro
 
 
 class CreateMeal(BaseModel):
@@ -40,6 +50,9 @@ class CreateMeal(BaseModel):
     portion_ratio: Portion
     share_mode: ShareMode
     meal_time: MealTime
+    dishes: list[Dish] | None = Field(default_factory=list, max_length=10)
+    ai_hint: str | None = None
+    original_input: str | None = None
 
     @field_validator('name')
     @classmethod
@@ -47,6 +60,11 @@ class CreateMeal(BaseModel):
         if not value.strip():
             raise ValueError('Name must not be blank')
         return value
+
+    @field_validator('dishes')
+    @classmethod
+    def normalize_dishes(cls, value):
+        return value or []
 
 
 class PatchMeal(BaseModel):
@@ -59,17 +77,26 @@ class PatchMeal(BaseModel):
     portion_ratio: Portion | None = None
     share_mode: ShareMode | None = None
     meal_time: MealTime | None = None
+    dishes: list[Dish] | None = Field(default=None, max_length=10)
+    ai_hint: str | None = None
+    original_input: str | None = None
     expected_updated_at: datetime | None = None
 
     @model_validator(mode='after')
     def validate_patch(self):
-        if any(getattr(self, key) is None for key in self.model_fields_set):
+        nullable = {'dishes', 'ai_hint', 'original_input'}
+        if any(getattr(self, key) is None for key in self.model_fields_set - nullable):
             raise ValueError('Omit unchanged fields; null is not accepted')
         if self.name is not None and not self.name.strip():
             raise ValueError('Name must not be blank')
         if self.expected_updated_at is not None and self.expected_updated_at.tzinfo is None:
             raise ValueError('expected_updated_at must include a timezone')
         return self
+
+    @field_validator('dishes')
+    @classmethod
+    def normalize_dishes(cls, value):
+        return value or []
 
 
 def conflict(detail):
@@ -100,11 +127,12 @@ def find_meal(cursor, pair_id, meal_id):
 
 def public_meal(row):
     # Never derive a historical baseline from rounded stored nutrition.
-    if any(row.get(key) is None for key in PUBLIC if key != 'shared_meal_id'):
+    if any(row.get(key) is None for key in REQUIRED_PUBLIC):
         conflict('Legacy meal requires explicit data reconciliation')
     if row['source'] not in ('manual', 'ai', 'text') or row['share_mode'] not in RATIOS:
         conflict('Legacy meal requires explicit data reconciliation')
     result = {key: row[key] for key in PUBLIC}
+    result['dishes'] = result['dishes'] or []
     result['meal_time'] = row['meal_time'].strftime('%H:%M')
     # Pydantic serializes Decimal as strings; Flutter requires JSON numbers.
     return jsonable_encoder(result, custom_encoder={Decimal: float})
@@ -143,6 +171,9 @@ def allocations(data, owner, members):
 
 
 def insert_meal(cursor, values):
+    values = values.copy()
+    values['dishes'] = Jsonb(jsonable_encoder(
+        values.get('dishes') or [], custom_encoder={Decimal: float}))
     keys = list(values)
     cursor.execute(sql.SQL('INSERT INTO meals ({}) VALUES ({}) RETURNING *').format(
         sql.SQL(', ').join(map(sql.Identifier, keys)),
@@ -151,6 +182,9 @@ def insert_meal(cursor, values):
 
 
 def update_row(cursor, meal_id, values):
+    values = values.copy()
+    values['dishes'] = Jsonb(jsonable_encoder(
+        values.get('dishes') or [], custom_encoder={Decimal: float}))
     cursor.execute(sql.SQL('UPDATE meals SET {} WHERE id = %s RETURNING *').format(
         sql.SQL(', ').join(sql.SQL('{} = %s').format(sql.Identifier(k)) for k in values)),
         [*values.values(), meal_id])
@@ -180,7 +214,7 @@ def list_meals(user_id: User, date: Annotated[Date, Query()]):
         return {'meals': [public_meal(row) for row in cursor.fetchall()]}
 
 
-# Register before /{meal_id}: "recent" is not a UUID.
+# Register before /{meal_id}: static paths are not UUIDs.
 @router.get('/recent')
 def recent_meals(user_id: User, limit: Annotated[int, Query(ge=1, le=10)] = 3):
     with connection() as conn, conn.cursor() as cursor:
@@ -192,6 +226,21 @@ def recent_meals(user_id: User, limit: Annotated[int, Query(ge=1, le=10)] = 3):
             ORDER BY COALESCE(shared_meal_id, id), (user_id = %s) DESC, id
         ) recent ORDER BY meal_date DESC, meal_time DESC, created_at DESC, id DESC LIMIT %s''',
                        (pair_id, user_id, limit))
+        return {'meals': [public_meal(row) for row in cursor.fetchall()]}
+
+
+@router.get('/reuse')
+def reuse_meals(user_id: User, date: Annotated[Date, Query()],
+                limit: Annotated[int, Query(ge=1, le=10)] = 3):
+    with connection() as conn, conn.cursor() as cursor:
+        pair_id, _ = pair_context(cursor, user_id)
+        cursor.execute('''SELECT * FROM (
+            SELECT DISTINCT ON (COALESCE(shared_meal_id, id)) * FROM meals
+            WHERE pair_id = %s AND user_id = %s AND meal_date = %s
+            ORDER BY COALESCE(shared_meal_id, id), meal_time DESC NULLS LAST,
+                     created_at DESC, id DESC
+        ) reusable ORDER BY meal_time DESC NULLS LAST, created_at DESC, id DESC LIMIT %s''',
+                       (pair_id, user_id, date, limit))
         return {'meals': [public_meal(row) for row in cursor.fetchall()]}
 
 
