@@ -47,8 +47,8 @@ wire value `ai`.
 | 401 | `{"detail":"Invalid authentication credentials"}` | Missing, invalid or expired Bearer JWT |
 | 413 | `{"detail":"Image too large"}` | File exceeds 5 MiB |
 | 422 | Standard FastAPI validation detail | Missing `image` or malformed multipart request |
-| 503 | `{"detail":"AI service unavailable"}` | `GEMINI_API_KEY` is missing or blank |
-| 502 | `{"detail":"AI analysis failed"}` | Gemini SDK, network, timeout, quota or provider failure |
+| 503 | `{"detail":"AI service unavailable"}` | Missing key, or all configured image models are temporarily overloaded/rate-limited |
+| 502 | `{"detail":"AI analysis failed"}` | Non-transient Gemini SDK, request, or provider failure |
 | 502 | `{"detail":"Invalid AI response"}` | Empty, malformed, schema-invalid, or over-10-dish AI output |
 
 The response never includes Gemini error text, the API key, prompt, raw AI output,
@@ -56,10 +56,14 @@ or a stack trace.
 
 ## Gemini call
 
-`GeminiProvider.analyze_image(image_bytes, mime_type, hint=None)` uses the same
-`GEMINI_API_KEY` and `AI_MODEL` configuration as text analysis. The request sends
-the image as a Gemini inline-data part and the optional hint as a separate user
-text part. The hint is never interpolated into the system instruction.
+`GeminiProvider.analyze_image(image_bytes, mime_type, hint=None)` uses
+`GEMINI_API_KEY` and `AI_IMAGE_MODEL` (default `gemini-3.5-flash-lite`). If the
+primary model returns a transient 408, 429, or 5xx response, image analysis
+retries once with `AI_IMAGE_FALLBACK_MODEL` (defaulting to `AI_MODEL`, then
+`gemini-3.6-flash`). The request sends the image as a Gemini inline-data part and
+the optional hint as a separate user text part. The hint is never interpolated
+into the system instruction. Logs include only model names and HTTP status codes,
+never image data, prompts, credentials, or upstream response bodies.
 
 The image prompt estimates the visible amount, uses reasonable common portions
 when exact weight is unknown, considers non-conflicting hints, prefers readable
@@ -96,4 +100,4 @@ Tests use an injected fake image provider or the real Google Gen AI SDK with an
 WebP, hint/no-hint behavior, authentication, MIME and signature rejection, the
 5 MiB limit, controlled provider errors, invalid AI JSON, the 10-dish limit,
 fixed `source: ai`, inline image bytes, shared model configuration, structured
-output, and sanitized SDK failures.
+output, transient-model fallback, and sanitized SDK failures.

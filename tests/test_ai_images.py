@@ -156,7 +156,7 @@ def test_malformed_image_ai_result_is_rejected(image_client, raw):
 
 def test_real_image_sdk_adapter_uses_inline_bytes(monkeypatch):
     monkeypatch.setenv('GEMINI_API_KEY', 'test-key-only')
-    monkeypatch.setenv('AI_MODEL', 'gemini-3.6-flash')
+    monkeypatch.setenv('AI_IMAGE_MODEL', 'gemini-3.6-flash')
     original_client = genai.Client
     requests = []
 
@@ -186,6 +186,60 @@ def test_real_image_sdk_adapter_uses_inline_bytes(monkeypatch):
     result = GeminiProvider().analyze_image(JPEG, 'image/jpeg', '米饭只有半碗')
     assert json.loads(result) == ESTIMATE
     assert len(requests) == 1
+
+
+def test_image_sdk_falls_back_on_transient_provider_error(monkeypatch):
+    monkeypatch.setenv('GEMINI_API_KEY', 'test-key-only')
+    monkeypatch.setenv('AI_IMAGE_MODEL', 'gemini-3.6-flash')
+    monkeypatch.setenv('AI_IMAGE_FALLBACK_MODEL', 'gemini-3.5-flash-lite')
+    original_client = genai.Client
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        if request.url.path.endswith('/models/gemini-3.6-flash:generateContent'):
+            return httpx.Response(503, json={'error': {
+                'code': 503, 'message': 'high demand', 'status': 'UNAVAILABLE',
+            }})
+        assert request.url.path.endswith(
+            '/models/gemini-3.5-flash-lite:generateContent')
+        return httpx.Response(200, json={'candidates':[{'content':{'role':'model',
+            'parts':[{'text':json.dumps(ESTIMATE)}]}, 'finishReason':'STOP'}]})
+
+    def client_factory(**kwargs):
+        options = kwargs['http_options']
+        kwargs['http_options'] = types.HttpOptions(timeout=options.timeout,
+            retry_options=options.retry_options,
+            client_args={'transport':httpx.MockTransport(handle)})
+        return original_client(**kwargs)
+
+    monkeypatch.setattr(genai, 'Client', client_factory)
+    result = GeminiProvider().analyze_image(JPEG, 'image/jpeg')
+    assert json.loads(result) == ESTIMATE
+    assert len(requests) == 2
+
+
+def test_image_sdk_reports_unavailable_when_fallback_is_overloaded(monkeypatch):
+    monkeypatch.setenv('GEMINI_API_KEY', 'test-key-only')
+    monkeypatch.setenv('AI_IMAGE_MODEL', 'gemini-3.6-flash')
+    monkeypatch.setenv('AI_IMAGE_FALLBACK_MODEL', 'gemini-3.5-flash-lite')
+    original_client = genai.Client
+
+    def handle(request):
+        return httpx.Response(503, json={'error': {
+            'code': 503, 'message': 'high demand', 'status': 'UNAVAILABLE',
+        }})
+
+    def client_factory(**kwargs):
+        options = kwargs['http_options']
+        kwargs['http_options'] = types.HttpOptions(timeout=options.timeout,
+            retry_options=options.retry_options,
+            client_args={'transport':httpx.MockTransport(handle)})
+        return original_client(**kwargs)
+
+    monkeypatch.setattr(genai, 'Client', client_factory)
+    with pytest.raises(AIUnavailable):
+        GeminiProvider().analyze_image(JPEG, 'image/jpeg')
 
 
 def test_image_sdk_failure_is_sanitized(monkeypatch):
