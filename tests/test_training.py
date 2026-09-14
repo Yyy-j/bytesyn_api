@@ -1,4 +1,3 @@
-from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from uuid import uuid4
@@ -14,6 +13,7 @@ def item(item_id, name=None, **changes):
         item_id=item_id,
         exercise_id=f"exercise-{item_id}",
         exercise_name=name or item_id.title(),
+        item_type="strength",
         category="strength",
         target_sets=3,
         target_reps=10,
@@ -27,7 +27,10 @@ def item(item_id, name=None, **changes):
 def template(*day_zero_items):
     return {
         "days": [
-            {"day_index": day_index, "items": list(day_zero_items) if day_index == 0 else []}
+            {
+                "day_index": day_index,
+                "exercises": list(day_zero_items) if day_index == 0 else [],
+            }
             for day_index in range(7)
         ]
     }
@@ -47,23 +50,35 @@ def find_item(week, item_id):
     return next(
         value
         for day in week["days"]
-        for value in day["items"]
+        for value in day["exercises"]
         if value["item_id"] == item_id
     )
 
 
+def assert_final_json_contract(value):
+    if isinstance(value, dict):
+        assert "week_key" not in value
+        assert "items" not in value
+        assert "sets" not in value
+        for nested in value.values():
+            assert_final_json_contract(nested)
+    elif isinstance(value, list):
+        for nested in value:
+            assert_final_json_contract(nested)
+
+
 def test_training_endpoints_require_jwt(context):
     client, _, _ = context
-    random_id = uuid4()
+    week_id = "2026-W01"
     calls = [
         ("get", "/training/template", None),
         ("put", "/training/template", template(),),
         ("get", "/training/weeks", None),
         ("get", "/training/weeks/current", None),
-        ("get", f"/training/weeks/{random_id}", None),
+        ("get", f"/training/weeks/{week_id}", None),
         ("post", "/training/weeks/current/sync", None),
-        ("post", f"/training/weeks/{random_id}/items/x/sets", {"request_id": "x"}),
-        ("patch", f"/training/weeks/{random_id}/items/x/sets/x", {"reps": 1}),
+        ("post", f"/training/weeks/{week_id}/items/x/sets", {"request_id": "x"}),
+        ("patch", f"/training/weeks/{week_id}/items/x/sets/x", {"reps": 1}),
     ]
     for method, path, body in calls:
         assert client.request(method, path, json=body).status_code == 401
@@ -74,7 +89,8 @@ def test_template_crud_version_and_validation(context):
     user = users[3]  # Deliberately unpaired: Training must not depend on Pair.
 
     missing = client.get("/training/template", headers=headers(user))
-    assert missing.status_code == 404
+    assert missing.status_code == 200
+    assert missing.json() == {"template": None}
 
     first = client.put(
         "/training/template", headers=headers(user), json=template(item("squat"))
@@ -90,9 +106,12 @@ def test_template_crud_version_and_validation(context):
     assert second.status_code == 200
     assert second.json()["id"] == first.json()["id"]
     assert second.json()["version"] == 2
-    assert client.get("/training/template", headers=headers(user)).json()["version"] == 2
+    fetched = client.get("/training/template", headers=headers(user)).json()["template"]
+    assert fetched["version"] == 2
+    assert find_item(fetched, "squat")["item_type"] == "strength"
+    assert_final_json_contract(fetched)
 
-    bad_days = {"days": [{"day_index": index, "items": []} for index in range(6)]}
+    bad_days = {"days": [{"day_index": index, "exercises": []} for index in range(6)]}
     assert client.put("/training/template", headers=headers(user), json=bad_days).status_code == 422
     duplicate = template(item("same"), item("same"))
     assert client.put("/training/template", headers=headers(user), json=duplicate).status_code == 422
@@ -114,14 +133,35 @@ def test_week_is_snapshot_and_current_is_idempotent(context):
     )
     assert update.json()["version"] == 2
     historical_snapshot = client.get(
-        f"/training/weeks/{week['id']}", headers=headers(user)
+        f"/training/weeks/{week['week_id']}", headers=headers(user)
     ).json()
     assert historical_snapshot["template_version"] == 1
     assert find_item(historical_snapshot, "squat")["target_sets"] == 3
     assert all(
         value["item_id"] != "bench"
-        for day in historical_snapshot["days"] for value in day["items"]
+        for day in historical_snapshot["days"] for value in day["exercises"]
     )
+
+
+def test_no_template_current_week_is_empty_and_sync_is_safe(context):
+    client, users, _ = context
+    user = users[3]
+    response = client.get("/training/weeks/current", headers=headers(user))
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["created"] is True
+    week = result["week"]
+    assert week["template_version"] is None
+    assert len(week["days"]) == 7
+    assert [day["day_index"] for day in week["days"]] == list(range(7))
+    assert all(day["exercises"] == [] for day in week["days"])
+    assert_final_json_contract(week)
+
+    sync = client.post("/training/weeks/current/sync", headers=headers(user))
+    assert sync.status_code == 200, sync.text
+    assert sync.json()["created"] is False
+    assert sync.json()["synced"] is False
+    assert sync.json()["week"]["id"] == week["id"]
 
 
 def test_week_history_and_get(context):
@@ -137,7 +177,7 @@ def test_week_history_and_get(context):
         past_start = row["week_start"] - timedelta(days=7)
         conn.execute(
             """INSERT INTO training_weeks
-               (id, user_id, week_key, week_start, week_end, template_version, days)
+               (id, user_id, week_id, week_start, week_end, template_version, days)
                VALUES (%s, %s, %s, %s, %s, %s, %s)""",
             (past_id, user, "2000-W01", past_start, past_start + timedelta(days=6),
              row["template_version"], Jsonb(row["days"])),
@@ -148,7 +188,15 @@ def test_week_history_and_get(context):
     assert response.json()["total"] == 2
     assert len(response.json()["weeks"]) == 1
     assert response.json()["weeks"][0]["id"] == current["id"]
-    assert client.get(f"/training/weeks/{past_id}", headers=headers(user)).status_code == 200
+    past = client.get("/training/weeks/2000-W01", headers=headers(user))
+    assert past.status_code == 200
+    assert past.json()["id"] == str(past_id)
+    assert past.json()["week_id"] == "2000-W01"
+    assert_final_json_contract(past.json())
+
+    assert client.get("/training/weeks/not-a-week", headers=headers(user)).status_code == 422
+    assert client.get("/training/weeks/2026-W54", headers=headers(user)).status_code == 422
+    assert client.get("/training/weeks/1999-W52", headers=headers(user)).status_code == 404
 
 
 def test_sync_merges_by_item_id_and_retains_recorded_deletions(context):
@@ -158,7 +206,7 @@ def test_sync_merges_by_item_id_and_retains_recorded_deletions(context):
     week = create_current(client, user, original)
     for target, request_id in (("keep", "keep-1"), ("drop-recorded", "drop-1")):
         response = client.post(
-            f"/training/weeks/{week['id']}/items/{target}/sets",
+            f"/training/weeks/{week['week_id']}/items/{target}/sets",
             headers=headers(user),
             json={"request_id": request_id, "reps": 8},
         )
@@ -180,22 +228,23 @@ def test_sync_merges_by_item_id_and_retains_recorded_deletions(context):
     kept = find_item(synced, "keep")
     assert kept["exercise_name"] == "Keep renamed"
     assert kept["completed_sets"] == 1
-    assert kept["sets"][0]["request_id"] == "keep-1"
+    assert kept["set_details"][0]["request_id"] == "keep-1"
     assert find_item(synced, "new")["completed_sets"] == 0
     removed = find_item(synced, "drop-recorded")
     assert removed["removed_from_template"] is True
     assert removed["completed_sets"] == 1
     assert not any(
         value["item_id"] == "drop-empty"
-        for day in synced["days"] for value in day["items"]
+        for day in synced["days"] for value in day["exercises"]
     )
+    assert_final_json_contract(synced)
 
 
 def test_set_checkin_idempotency_server_count_and_update(context):
     client, users, _ = context
     user = users[0]
     week = create_current(client, user, template(item("squat", target_sets=2)))
-    url = f"/training/weeks/{week['id']}/items/squat/sets"
+    url = f"/training/weeks/{week['week_id']}/items/squat/sets"
     body = {"request_id": "set-request-1", "weight": 42.5, "reps": 9, "rpe": 8}
     first = client.post(url, headers=headers(user), json=body)
     assert first.status_code == 201
@@ -225,26 +274,32 @@ def test_set_checkin_idempotency_server_count_and_update(context):
     assert patch.json()["set"]["remark"] == "controlled"
     assert patch.json()["set"]["request_id"] == "set-request-1"
 
-    fetched = client.get(f"/training/weeks/{week['id']}", headers=headers(user)).json()
+    fetched = client.get(
+        f"/training/weeks/{week['week_id']}", headers=headers(user)
+    ).json()
     squat = find_item(fetched, "squat")
-    assert squat["completed_sets"] == len(squat["sets"]) == 1
+    assert squat["completed_sets"] == len(squat["set_details"]) == 1
+    assert squat["item_type"] == "strength"
+    assert_final_json_contract(fetched)
 
 
 def test_user_isolation_for_template_week_and_sets(context):
     client, users, _ = context
     owner, stranger = users[0], users[2]
     week = create_current(client, owner)
-    assert client.get("/training/template", headers=headers(stranger)).status_code == 404
+    assert client.get("/training/template", headers=headers(stranger)).json() == {
+        "template": None
+    }
     assert client.get(
-        f"/training/weeks/{week['id']}", headers=headers(stranger)
+        f"/training/weeks/{week['week_id']}", headers=headers(stranger)
     ).status_code == 404
     assert client.post(
-        f"/training/weeks/{week['id']}/items/squat/sets",
+        f"/training/weeks/{week['week_id']}/items/squat/sets",
         headers=headers(stranger),
         json={"request_id": "isolation-attempt"},
     ).status_code == 404
     assert client.patch(
-        f"/training/weeks/{week['id']}/items/squat/sets/anything",
+        f"/training/weeks/{week['week_id']}/items/squat/sets/anything",
         headers=headers(stranger),
         json={"reps": 1},
     ).status_code == 404
@@ -254,7 +309,7 @@ def test_request_id_cannot_move_between_items(context):
     client, users, _ = context
     user = users[0]
     week = create_current(client, user, template(item("first"), item("second")))
-    base = f"/training/weeks/{week['id']}/items"
+    base = f"/training/weeks/{week['week_id']}/items"
     assert client.post(
         f"{base}/first/sets", headers=headers(user), json={"request_id": "global-request"}
     ).status_code == 201
@@ -268,7 +323,7 @@ def test_concurrent_request_id_is_counted_once(context):
     client, users, _ = context
     user = users[0]
     week = create_current(client, user, template(item("row", target_sets=10)))
-    url = f"/training/weeks/{week['id']}/items/row/sets"
+    url = f"/training/weeks/{week['week_id']}/items/row/sets"
 
     def submit(_):
         return client.post(
@@ -280,5 +335,7 @@ def test_concurrent_request_id_is_counted_once(context):
     assert all(response.status_code == 201 for response in responses)
     assert sum(not response.json()["duplicate"] for response in responses) == 1
     assert {response.json()["completed_sets"] for response in responses} == {1}
-    fetched = client.get(f"/training/weeks/{week['id']}", headers=headers(user)).json()
-    assert len(find_item(fetched, "row")["sets"]) == 1
+    fetched = client.get(
+        f"/training/weeks/{week['week_id']}", headers=headers(user)
+    ).json()
+    assert len(find_item(fetched, "row")["set_details"]) == 1
