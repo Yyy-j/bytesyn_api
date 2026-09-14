@@ -38,6 +38,7 @@ class TemplateItem(BaseModel):
     target_sets: int = Field(ge=1, le=50)
     target_reps: int = Field(ge=0, le=999)
     target_weight: float = Field(default=0, ge=0, le=10000)
+    target_duration_seconds: int | None = Field(default=None, ge=1, le=86400)
     order: int = Field(default=0, ge=0, le=1000)
 
 
@@ -70,6 +71,7 @@ class CreateSet(BaseModel):
     weight: float | None = Field(default=None, ge=0, le=10000)
     reps: int | None = Field(default=None, ge=0, le=9999)
     rpe: float | None = Field(default=None, ge=1, le=10)
+    duration_seconds: int | None = Field(default=None, ge=1, le=86400)
     remark: Annotated[str, StringConstraints(max_length=500)] | None = None
 
 
@@ -79,6 +81,7 @@ class PatchSet(BaseModel):
     weight: float | None = Field(default=None, ge=0, le=10000)
     reps: int | None = Field(default=None, ge=0, le=9999)
     rpe: float | None = Field(default=None, ge=1, le=10)
+    duration_seconds: int | None = Field(default=None, ge=1, le=86400)
     remark: Annotated[str, StringConstraints(max_length=500)] | None = None
 
     @model_validator(mode="after")
@@ -105,9 +108,28 @@ def _canonical_days(body: PutTemplate) -> list[dict]:
 
 
 def _public_template(row):
-    return jsonable_encoder({key: row[key] for key in (
+    result = {key: row[key] for key in (
         "id", "version", "days", "created_at", "updated_at"
-    )})
+    )}
+    result["days"] = _public_days(result["days"])
+    return jsonable_encoder(result)
+
+
+def _public_days(days: list[dict]) -> list[dict]:
+    """Fill nullable duration keys omitted by pre-duration JSON snapshots."""
+    result = deepcopy(days)
+    for day in result:
+        for item in day["exercises"]:
+            item.setdefault("target_duration_seconds", None)
+            for detail in item.get("set_details", []):
+                detail.setdefault("duration_seconds", None)
+    return result
+
+
+def _public_set_detail(detail: dict) -> dict:
+    result = deepcopy(detail)
+    result.setdefault("duration_seconds", None)
+    return jsonable_encoder(result)
 
 
 def _public_week(row):
@@ -115,6 +137,7 @@ def _public_week(row):
         "id", "week_id", "week_start", "week_end", "template_version",
         "snapshot_at", "synced_at", "days", "created_at", "updated_at",
     )}
+    result["days"] = _public_days(result["days"])
     return jsonable_encoder(result)
 
 
@@ -326,7 +349,7 @@ def create_set(week_id: WeekId, item_id: str, body: CreateSet, user_id: User):
                     "duplicate": True,
                     "completed_sets": len(item.get("set_details", [])),
                     "target_sets": item["target_sets"],
-                    "set": detail,
+                    "set": _public_set_detail(detail),
                 }
 
         set_details = item.setdefault("set_details", [])
@@ -348,7 +371,7 @@ def create_set(week_id: WeekId, item_id: str, body: CreateSet, user_id: User):
             "duplicate": False,
             "completed_sets": len(set_details),
             "target_sets": item["target_sets"],
-            "set": detail,
+            "set": _public_set_detail(detail),
         }
 
 
@@ -377,4 +400,7 @@ def patch_set(
             (Jsonb(days), now, week["id"], user_id),
         )
         cursor.fetchone()
-        return {"completed_sets": item["completed_sets"], "set": detail}
+        return {
+            "completed_sets": item["completed_sets"],
+            "set": _public_set_detail(detail),
+        }

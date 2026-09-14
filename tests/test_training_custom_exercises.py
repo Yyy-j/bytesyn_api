@@ -1,7 +1,9 @@
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
 
+from app.db import get_connection
 from conftest import headers
 from test_training import create_current, find_item, item, template
 
@@ -38,6 +40,7 @@ def test_custom_exercise_create_list_and_user_isolation(context):
     assert created["name"] == "保加利亚分腿蹲"
     assert created["category"] == "腿部"
     assert created["default_weight"] == 10
+    assert created["default_duration_seconds"] is None
     assert "user_id" not in created
     assert created["created_at"] == created["updated_at"]
 
@@ -152,6 +155,59 @@ def test_custom_exercise_patch_contract(context):
     ).status_code == 404
 
 
+def test_custom_exercise_duration_create_patch_and_null(context):
+    client, users, _ = context
+    user = users[0]
+    created = create_exercise(
+        client,
+        user,
+        item_type="cardio",
+        default_duration_seconds=1500,
+    )
+    assert created["default_duration_seconds"] == 1500
+    path = f"/training/exercises/custom/{created['id']}"
+
+    changed = client.patch(
+        path, headers=headers(user), json={"default_duration_seconds": 1800}
+    )
+    assert changed.status_code == 200
+    assert changed.json()["default_duration_seconds"] == 1800
+    cleared = client.patch(
+        path, headers=headers(user), json={"default_duration_seconds": None}
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["default_duration_seconds"] is None
+
+    for invalid in (0, 86401):
+        assert client.post(
+            "/training/exercises/custom",
+            headers=headers(user),
+            json=exercise_payload(default_duration_seconds=invalid),
+        ).status_code == 422
+        assert client.patch(
+            path,
+            headers=headers(user),
+            json={"default_duration_seconds": invalid},
+        ).status_code == 422
+
+
+def test_migration_008_is_repeatable_and_constrained(context):
+    migration = Path("app/migrations/008_training_custom_duration.sql").read_text()
+    with get_connection() as conn:
+        conn.execute(migration)
+        conn.execute(migration)
+        assert conn.execute(
+            """SELECT count(*) AS count FROM schema_migrations
+               WHERE version = '008_training_custom_duration'"""
+        ).fetchone()["count"] == 1
+        assert conn.execute(
+            """SELECT count(*) AS count FROM pg_constraint
+               WHERE conname =
+                   'training_custom_exercises_default_duration_seconds_check'
+                 AND conrelid = 'training_custom_exercises'::regclass"""
+        ).fetchone()["count"] == 1
+
+
 @pytest.mark.parametrize(
     ("field", "valid_values", "invalid_values"),
     [
@@ -205,12 +261,14 @@ def test_custom_exercise_rejects_non_finite_weight(context):
 def test_custom_exercise_delete_preserves_template_and_week(context):
     client, users, _ = context
     user = users[0]
-    custom = create_exercise(client, user)
+    custom = create_exercise(client, user, default_duration_seconds=720)
     custom_item = item(
         "custom-template-item",
         name=custom["name"],
         exercise_id=custom["id"],
         category=custom["category"],
+        item_type="duration",
+        target_duration_seconds=custom["default_duration_seconds"],
     )
     week = create_current(client, user, template(custom_item))
     template_before = client.get(
@@ -221,6 +279,8 @@ def test_custom_exercise_delete_preserves_template_and_week(context):
     ).json()
     assert find_item(template_before, "custom-template-item")["exercise_id"] == custom["id"]
     assert find_item(week_before, "custom-template-item")["exercise_id"] == custom["id"]
+    assert find_item(template_before, "custom-template-item")["target_duration_seconds"] == 720
+    assert find_item(week_before, "custom-template-item")["target_duration_seconds"] == 720
 
     response = client.delete(
         f"/training/exercises/custom/{custom['id']}", headers=headers(user)

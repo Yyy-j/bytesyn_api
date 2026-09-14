@@ -117,6 +117,52 @@ def test_template_crud_version_and_validation(context):
     assert client.put("/training/template", headers=headers(user), json=duplicate).status_code == 422
 
 
+def test_template_duration_contract_and_boundaries(context):
+    client, users, _ = context
+    user = users[0]
+    payload = template(
+        item("strength", item_type="strength"),
+        item("duration", item_type="duration", target_duration_seconds=180),
+        item("cardio", item_type="cardio", target_duration_seconds=1200),
+    )
+    response = client.put("/training/template", headers=headers(user), json=payload)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert find_item(result, "strength")["target_duration_seconds"] is None
+    assert find_item(result, "duration")["target_duration_seconds"] == 180
+    assert find_item(result, "cardio")["target_duration_seconds"] == 1200
+
+    for invalid in (0, 86401):
+        invalid_response = client.put(
+            "/training/template",
+            headers=headers(user),
+            json=template(item("invalid", target_duration_seconds=invalid)),
+        )
+        assert invalid_response.status_code == 422
+
+
+def test_old_template_without_duration_returns_null(context):
+    client, users, _ = context
+    user = users[0]
+    response = client.put(
+        "/training/template", headers=headers(user), json=template(item("legacy"))
+    )
+    assert response.status_code == 200
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT days FROM training_templates WHERE user_id = %s", (user,)
+        ).fetchone()
+        days = row["days"]
+        del find_item({"days": days}, "legacy")["target_duration_seconds"]
+        conn.execute(
+            "UPDATE training_templates SET days = %s WHERE user_id = %s",
+            (Jsonb(days), user),
+        )
+    fetched = client.get("/training/template", headers=headers(user))
+    assert fetched.status_code == 200
+    assert find_item(fetched.json()["template"], "legacy")["target_duration_seconds"] is None
+
+
 def test_week_is_snapshot_and_current_is_idempotent(context):
     client, users, _ = context
     user = users[0]
@@ -141,6 +187,30 @@ def test_week_is_snapshot_and_current_is_idempotent(context):
         value["item_id"] != "bench"
         for day in historical_snapshot["days"] for value in day["exercises"]
     )
+
+
+def test_week_snapshot_and_history_preserve_template_duration(context):
+    client, users, _ = context
+    user = users[0]
+    week = create_current(
+        client,
+        user,
+        template(item("run", item_type="cardio", target_duration_seconds=900)),
+    )
+    assert find_item(week, "run")["target_duration_seconds"] == 900
+
+    changed = client.put(
+        "/training/template",
+        headers=headers(user),
+        json=template(item("run", item_type="cardio", target_duration_seconds=1800)),
+    )
+    assert changed.status_code == 200
+    fetched = client.get(
+        f"/training/weeks/{week['week_id']}", headers=headers(user)
+    ).json()
+    history = client.get("/training/weeks", headers=headers(user)).json()["weeks"][0]
+    assert find_item(fetched, "run")["target_duration_seconds"] == 900
+    assert find_item(history, "run")["target_duration_seconds"] == 900
 
 
 def test_no_template_current_week_is_empty_and_sync_is_safe(context):
@@ -281,6 +351,68 @@ def test_set_checkin_idempotency_server_count_and_update(context):
     assert squat["completed_sets"] == len(squat["set_details"]) == 1
     assert squat["item_type"] == "strength"
     assert_final_json_contract(fetched)
+
+
+def test_set_duration_create_patch_clear_and_legacy_read(context):
+    client, users, _ = context
+    user = users[0]
+    week = create_current(
+        client,
+        user,
+        template(item("bike", item_type="duration", target_duration_seconds=600)),
+    )
+    url = f"/training/weeks/{week['week_id']}/items/bike/sets"
+    created = client.post(
+        url,
+        headers=headers(user),
+        json={"request_id": "duration-set", "duration_seconds": 480},
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["set"]["duration_seconds"] == 480
+
+    changed = client.patch(
+        f"{url}/duration-set",
+        headers=headers(user),
+        json={"duration_seconds": 510},
+    )
+    assert changed.status_code == 200
+    assert changed.json()["set"]["duration_seconds"] == 510
+    cleared = client.patch(
+        f"{url}/duration-set",
+        headers=headers(user),
+        json={"duration_seconds": None},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["set"]["duration_seconds"] is None
+    assert client.patch(f"{url}/duration-set", headers=headers(user), json={}).status_code == 422
+
+    for invalid in (0, 86401):
+        assert client.post(
+            url,
+            headers=headers(user),
+            json={"request_id": f"invalid-{invalid}", "duration_seconds": invalid},
+        ).status_code == 422
+        assert client.patch(
+            f"{url}/duration-set",
+            headers=headers(user),
+            json={"duration_seconds": invalid},
+        ).status_code == 422
+
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT days FROM training_weeks WHERE id = %s", (week["id"],)
+        ).fetchone()
+        days = row["days"]
+        legacy = find_item({"days": days}, "bike")["set_details"][0]
+        del legacy["duration_seconds"]
+        conn.execute(
+            "UPDATE training_weeks SET days = %s WHERE id = %s",
+            (Jsonb(days), week["id"]),
+        )
+    fetched = client.get(
+        f"/training/weeks/{week['week_id']}", headers=headers(user)
+    ).json()
+    assert find_item(fetched, "bike")["set_details"][0]["duration_seconds"] is None
 
 
 def test_user_isolation_for_template_week_and_sets(context):

@@ -28,6 +28,7 @@ class CustomExerciseCreate(BaseModel):
     default_sets: int = Field(ge=1, le=50)
     default_reps: int = Field(ge=0, le=999)
     default_weight: float = Field(default=0, ge=0, le=10000)
+    default_duration_seconds: int | None = Field(default=None, ge=1, le=86400)
 
 
 class CustomExercisePatch(BaseModel):
@@ -39,12 +40,16 @@ class CustomExercisePatch(BaseModel):
     default_sets: int | None = Field(default=None, ge=1, le=50)
     default_reps: int | None = Field(default=None, ge=0, le=999)
     default_weight: float | None = Field(default=None, ge=0, le=10000)
+    default_duration_seconds: int | None = Field(default=None, ge=1, le=86400)
 
     @model_validator(mode="after")
     def require_non_null_change(self):
         if not self.model_fields_set:
             raise ValueError("at least one custom exercise field is required")
-        if any(getattr(self, field) is None for field in self.model_fields_set):
+        if any(
+            field != "default_duration_seconds" and getattr(self, field) is None
+            for field in self.model_fields_set
+        ):
             raise ValueError("custom exercise fields cannot be null")
         return self
 
@@ -59,6 +64,7 @@ class CustomExercisePublic(BaseModel):
     default_sets: int
     default_reps: int
     default_weight: float
+    default_duration_seconds: int | None
     created_at: datetime
     updated_at: datetime
 
@@ -83,6 +89,7 @@ def _public_exercise(row):
                 "default_sets",
                 "default_reps",
                 "default_weight",
+                "default_duration_seconds",
                 "created_at",
                 "updated_at",
             )
@@ -113,8 +120,8 @@ def create_custom_exercise(body: CustomExerciseCreate, user_id: User):
         cursor.execute(
             """INSERT INTO training_custom_exercises
                (user_id, name, category, item_type, default_sets, default_reps,
-                default_weight, created_at, updated_at)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                default_weight, default_duration_seconds, created_at, updated_at)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                RETURNING *""",
             (
                 user_id,
@@ -124,6 +131,7 @@ def create_custom_exercise(body: CustomExerciseCreate, user_id: User):
                 body.default_sets,
                 body.default_reps,
                 body.default_weight,
+                body.default_duration_seconds,
                 now,
                 now,
             ),
