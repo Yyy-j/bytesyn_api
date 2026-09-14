@@ -44,9 +44,11 @@ def _new_invite_code() -> str:
 def _pair_response(cursor, pair_id: UUID) -> PairResponse:
     cursor.execute(
         """
-        SELECT p.id AS pair_id, p.invite_code, p.created_at, pm.user_id
+        SELECT p.id AS pair_id, p.invite_code, p.created_at, pm.user_id,
+               u.display_name, u.avatar_url
         FROM pairs AS p
         JOIN pair_members AS pm ON pm.pair_id = p.id
+        JOIN users AS u ON u.id = pm.user_id
         WHERE p.id = %s
         ORDER BY pm.joined_at, pm.user_id
         """,
@@ -63,7 +65,14 @@ def _pair_response(cursor, pair_id: UUID) -> PairResponse:
         pair_id=first["pair_id"],
         invite_code=first["invite_code"],
         created_at=first["created_at"],
-        members=[PairMemberResponse(user_id=row["user_id"]) for row in rows],
+        members=[
+            PairMemberResponse(
+                user_id=row["user_id"],
+                display_name=row["display_name"],
+                avatar_url=row["avatar_url"],
+            )
+            for row in rows
+        ],
     )
 
 

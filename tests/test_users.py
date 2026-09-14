@@ -60,3 +60,26 @@ def test_users_me_requires_authentication(context):
     client, _, _ = context
     assert client.get('/users/me').status_code == 401
     assert client.patch('/users/me', json={'display_name':'Harper'}).status_code == 401
+
+
+def test_pair_members_include_profile_information(context):
+    client, users, _ = context
+    for index, user in enumerate(users[:2]):
+        add_identity(user, email=f'person-{index}@example.com')
+        response = client.patch(
+            '/users/me',
+            headers=headers(user),
+            json={
+                'display_name': f'Member {index + 1}',
+                'avatar_url': f'https://example.com/{index + 1}.png',
+            },
+        )
+        assert response.status_code == 200
+
+    pair = client.get('/pairs/me', headers=headers(users[0]))
+    assert pair.status_code == 200
+    members = {value['user_id']: value for value in pair.json()['members']}
+    assert members[str(users[0])]['display_name'] == 'Member 1'
+    assert members[str(users[0])]['avatar_url'] == 'https://example.com/1.png'
+    assert members[str(users[1])]['display_name'] == 'Member 2'
+    assert members[str(users[1])]['avatar_url'] == 'https://example.com/2.png'

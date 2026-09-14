@@ -1,11 +1,19 @@
-"""Private custom exercise catalog endpoints."""
+"""Private custom exercise catalog and teaching-video endpoints."""
 from datetime import datetime, timezone
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.encoders import jsonable_encoder
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from app.auth import get_current_user_id
 from app.db import connection
@@ -17,6 +25,9 @@ ExerciseName = Annotated[
 ]
 Category = Annotated[str, StringConstraints(strip_whitespace=True, max_length=50)]
 ItemType = Literal["strength", "duration", "cardio"]
+ExerciseId = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)
+]
 
 
 class CustomExerciseCreate(BaseModel):
@@ -73,6 +84,38 @@ class CustomExerciseList(BaseModel):
     exercises: list[CustomExercisePublic]
 
 
+class ExerciseVideoPut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    video_url: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2048)
+    ]
+
+    @field_validator("video_url")
+    @classmethod
+    def validate_http_url(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme.lower() not in {"http", "https"}
+            or not parsed.netloc
+            or any(character.isspace() for character in value)
+        ):
+            raise ValueError("video_url must be an http or https URL")
+        return value
+
+
+class ExerciseVideoPublic(BaseModel):
+    id: UUID
+    exercise_id: str
+    video_url: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ExerciseVideoList(BaseModel):
+    videos: list[ExerciseVideoPublic]
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -90,6 +133,21 @@ def _public_exercise(row):
                 "default_reps",
                 "default_weight",
                 "default_duration_seconds",
+                "created_at",
+                "updated_at",
+            )
+        }
+    )
+
+
+def _public_video(row):
+    return jsonable_encoder(
+        {
+            key: row[key]
+            for key in (
+                "id",
+                "exercise_id",
+                "video_url",
                 "created_at",
                 "updated_at",
             )
@@ -169,6 +227,11 @@ def patch_custom_exercise(
 def delete_custom_exercise(exercise_id: UUID, user_id: User):
     with connection() as conn, conn.cursor() as cursor:
         cursor.execute(
+            """DELETE FROM training_exercise_videos
+               WHERE user_id = %s AND exercise_id = %s""",
+            (user_id, str(exercise_id)),
+        )
+        cursor.execute(
             """DELETE FROM training_custom_exercises
                WHERE id = %s AND user_id = %s
                RETURNING id""",
@@ -178,4 +241,44 @@ def delete_custom_exercise(exercise_id: UUID, user_id: User):
             raise HTTPException(
                 status.HTTP_404_NOT_FOUND, "Custom exercise not found"
             )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/videos", response_model=ExerciseVideoList)
+def list_exercise_videos(user_id: User):
+    with connection() as conn, conn.cursor() as cursor:
+        cursor.execute(
+            """SELECT * FROM training_exercise_videos
+               WHERE user_id = %s ORDER BY updated_at DESC, exercise_id""",
+            (user_id,),
+        )
+        return {"videos": [_public_video(row) for row in cursor.fetchall()]}
+
+
+@router.put("/{exercise_id}/video", response_model=ExerciseVideoPublic)
+def put_exercise_video(exercise_id: ExerciseId, body: ExerciseVideoPut, user_id: User):
+    now = _now()
+    with connection() as conn, conn.cursor() as cursor:
+        cursor.execute(
+            """INSERT INTO training_exercise_videos
+               (user_id, exercise_id, video_url, created_at, updated_at)
+               VALUES (%s, %s, %s, %s, %s)
+               ON CONFLICT (user_id, exercise_id) DO UPDATE
+               SET video_url = EXCLUDED.video_url, updated_at = EXCLUDED.updated_at
+               RETURNING *""",
+            (user_id, exercise_id, body.video_url, now, now),
+        )
+        return _public_video(cursor.fetchone())
+
+
+@router.delete("/{exercise_id}/video", status_code=status.HTTP_204_NO_CONTENT)
+def delete_exercise_video(exercise_id: ExerciseId, user_id: User):
+    with connection() as conn, conn.cursor() as cursor:
+        cursor.execute(
+            """DELETE FROM training_exercise_videos
+               WHERE user_id = %s AND exercise_id = %s RETURNING id""",
+            (user_id, exercise_id),
+        )
+        if cursor.fetchone() is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Exercise video not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
