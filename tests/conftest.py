@@ -43,6 +43,8 @@ def database():
         conn.execute((ROOT / 'app/migrations/008_training_custom_duration.sql').read_text())
         conn.execute((ROOT / 'app/migrations/009_training_exercise_videos.sql').read_text())
         conn.execute((ROOT / 'app/migrations/009_training_exercise_videos.sql').read_text())
+        conn.execute((ROOT / 'app/migrations/010_auth_sessions.sql').read_text())
+        conn.execute((ROOT / 'app/migrations/010_auth_sessions.sql').read_text())
     yield
     with psycopg.connect(host=os.environ['DATABASE_HOST'], port=os.environ['DATABASE_PORT'],
                          dbname='postgres', user='postgres', password='test-only',

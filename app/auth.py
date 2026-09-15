@@ -1,16 +1,23 @@
 import os
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 from uuid import UUID
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from pydantic import BaseModel, Field
 
-from app.db import find_or_create_identity
+from app.db import (
+    create_auth_session,
+    find_or_create_identity,
+    revoke_auth_session,
+    rotate_auth_session,
+)
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -21,9 +28,17 @@ class GoogleLoginRequest(BaseModel):
     id_token: str = Field(min_length=1)
 
 
-class AccessTokenResponse(BaseModel):
+class TokenPairResponse(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str = Field(min_length=1, max_length=512)
+
+
+REFRESH_SESSION_LIFETIME = timedelta(hours=72)
 
 
 def _unauthorized() -> HTTPException:
@@ -67,6 +82,32 @@ def create_access_token(user_id: UUID) -> str:
     return jwt.encode(claims, os.environ["JWT_SECRET"], algorithm="HS256")
 
 
+def _new_refresh_token() -> str:
+    return secrets.token_urlsafe(48)
+
+
+def _hash_refresh_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _create_token_pair(user_id: UUID) -> TokenPairResponse:
+    refresh_token = _new_refresh_token()
+    now = _utcnow()
+    create_auth_session(
+        user_id=user_id,
+        token_hash=_hash_refresh_token(refresh_token),
+        expires_at=now + REFRESH_SESSION_LIFETIME,
+    )
+    return TokenPairResponse(
+        access_token=create_access_token(user_id),
+        refresh_token=refresh_token,
+    )
+
+
 def get_current_user_id(
     credentials: Annotated[
         HTTPAuthorizationCredentials | None, Depends(bearer_scheme)
@@ -88,12 +129,39 @@ def get_current_user_id(
         raise _unauthorized() from None
 
 
-@router.post("/google", response_model=AccessTokenResponse)
-def google_login(body: GoogleLoginRequest) -> AccessTokenResponse:
+@router.post("/google", response_model=TokenPairResponse)
+def google_login(body: GoogleLoginRequest) -> TokenPairResponse:
     claims = verify_google_token(body.id_token)
     identity = find_or_create_identity(
         provider="google",
         provider_subject=str(claims["sub"]),
         email=claims.get("email") if isinstance(claims.get("email"), str) else None,
     )
-    return AccessTokenResponse(access_token=create_access_token(identity["user_id"]))
+    return _create_token_pair(identity["user_id"])
+
+
+@router.post("/refresh", response_model=TokenPairResponse)
+def refresh_session(body: RefreshTokenRequest) -> TokenPairResponse:
+    now = _utcnow()
+    next_refresh_token = _new_refresh_token()
+    user_id = rotate_auth_session(
+        old_token_hash=_hash_refresh_token(body.refresh_token),
+        new_token_hash=_hash_refresh_token(next_refresh_token),
+        now=now,
+        expires_at=now + REFRESH_SESSION_LIFETIME,
+    )
+    if user_id is None:
+        raise _unauthorized()
+    return TokenPairResponse(
+        access_token=create_access_token(user_id),
+        refresh_token=next_refresh_token,
+    )
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(body: RefreshTokenRequest) -> Response:
+    revoke_auth_session(
+        token_hash=_hash_refresh_token(body.refresh_token),
+        now=_utcnow(),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

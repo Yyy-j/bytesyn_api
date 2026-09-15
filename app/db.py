@@ -1,6 +1,7 @@
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime
 from uuid import UUID
 
 import psycopg
@@ -79,3 +80,51 @@ def get_user_identity(user_id: UUID) -> dict[str, object] | None:
                 (user_id,),
             )
             return cursor.fetchone()
+
+
+def create_auth_session(
+    *, user_id: UUID, token_hash: str, expires_at: datetime
+) -> None:
+    with connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO auth_sessions (user_id, token_hash, expires_at)
+            VALUES (%s, %s, %s)
+            """,
+            (user_id, token_hash, expires_at),
+        )
+
+
+def rotate_auth_session(
+    *,
+    old_token_hash: str,
+    new_token_hash: str,
+    now: datetime,
+    expires_at: datetime,
+) -> UUID | None:
+    """Atomically consume one valid refresh token and replace it."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            UPDATE auth_sessions
+            SET token_hash = %s, expires_at = %s, updated_at = %s
+            WHERE token_hash = %s
+              AND revoked_at IS NULL
+              AND expires_at > %s
+            RETURNING user_id
+            """,
+            (new_token_hash, expires_at, now, old_token_hash, now),
+        ).fetchone()
+        return row["user_id"] if row is not None else None
+
+
+def revoke_auth_session(*, token_hash: str, now: datetime) -> None:
+    with connection() as conn:
+        conn.execute(
+            """
+            UPDATE auth_sessions
+            SET revoked_at = COALESCE(revoked_at, %s), updated_at = %s
+            WHERE token_hash = %s
+            """,
+            (now, now, token_hash),
+        )
