@@ -18,7 +18,7 @@ def test_get_me_default_goals(context):
     assert response.status_code == 200
     assert response.json() == {
         'id':str(users[0]), 'email':'person@example.com', 'provider':'google',
-        'display_name':None, 'avatar_url':None,
+        'display_name':None,
         'goals':{'calories':2000, 'protein':90, 'carbs':250, 'fat':60},
     }
 
@@ -27,12 +27,11 @@ def test_patch_me_profile_and_partial_goals(context):
     client, users, _ = context
     add_identity(users[0])
     response = client.patch('/users/me', headers=headers(users[0]), json={
-        'display_name':'  Harper  ', 'avatar_url':'  https://example.com/a.png  ',
+        'display_name':'  Harper  ',
         'goals':{'calories':2200, 'protein':120}})
     assert response.status_code == 200, response.text
     result = response.json()
     assert result['display_name'] == 'Harper'
-    assert result['avatar_url'] == 'https://example.com/a.png'
     assert result['goals'] == {'calories':2200, 'protein':120, 'carbs':250, 'fat':60}
     with get_connection() as conn:
         row = conn.execute('''SELECT display_name, calorie_goal, protein_goal,
@@ -71,7 +70,6 @@ def test_pair_members_include_profile_information(context):
             headers=headers(user),
             json={
                 'display_name': f'Member {index + 1}',
-                'avatar_url': f'https://example.com/{index + 1}.png',
             },
         )
         assert response.status_code == 200
@@ -80,6 +78,4 @@ def test_pair_members_include_profile_information(context):
     assert pair.status_code == 200
     members = {value['user_id']: value for value in pair.json()['members']}
     assert members[str(users[0])]['display_name'] == 'Member 1'
-    assert members[str(users[0])]['avatar_url'] == 'https://example.com/1.png'
     assert members[str(users[1])]['display_name'] == 'Member 2'
-    assert members[str(users[1])]['avatar_url'] == 'https://example.com/2.png'

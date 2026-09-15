@@ -13,7 +13,7 @@ do not authorize new business features or API contracts.
 - Exercise Picker: search/filter hierarchy and catalog-management actions.
 - History: week scanning, read-only cues, long-session readability.
 - Goals: units, numeric fields, explanation and save state.
-- Profile: avatar fallback, identity hierarchy, grouped settings/actions.
+- Profile: default profile icon, identity hierarchy, grouped settings/actions.
 - Bottom Navigation: icon consistency, labels, selected states, safe areas.
 - Dark Mode: semantic color tokens and contrast across every page/state.
 - Empty / Loading / Error: consistent components, retry placement and copy.

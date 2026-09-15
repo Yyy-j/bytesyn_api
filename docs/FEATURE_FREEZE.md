@@ -21,7 +21,7 @@ as reference material rather than a migration checklist.
 - P1 resolved in this round: one external teaching-video URL per private
   exercise reference; a usable Profile/My page; visible logout; user-facing
   Pair member identity; and the Backend Pair query that previously returned
-  empty display names and avatar URLs.
+  empty display names.
 - P1 resolved in this round: the Pair details action now performs real
   navigation back to the main app instead of only changing an internal flag.
 - P2: intentionally deferred items are recorded in `FUTURE_FEATURES.md`.
@@ -36,7 +36,7 @@ Profile -> Logout. No remaining functional blocker was found in that path.
 ## Completed V1 capabilities
 
 - Google authentication, local JWT session restore, expiry handling, logout.
-- Private user profile with display name, avatar URL, and nutrition goals.
+- Private user profile with display name and nutrition goals.
 - Pair creation/joining, invite code, member status and partner identity.
 - Meal CRUD, text/image AI analysis, refine/reuse, solo/shared portions,
   two-person daily summary, and personal goals.

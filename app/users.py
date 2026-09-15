@@ -31,7 +31,6 @@ class CurrentUserResponse(BaseModel):
     email: str | None
     provider: str
     display_name: str | None
-    avatar_url: str | None
     goals: NutritionGoals
 
 
@@ -46,10 +45,9 @@ class PatchNutritionGoals(BaseModel):
 class PatchCurrentUser(BaseModel):
     model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
     display_name: str | None = Field(default=None, max_length=100)
-    avatar_url: str | None = None
     goals: PatchNutritionGoals | None = None
 
-    @field_validator('display_name', 'avatar_url')
+    @field_validator('display_name')
     @classmethod
     def trim_optional_text(cls, value):
         if value is None:
@@ -86,7 +84,7 @@ def patch_me(
     user_id: Annotated[UUID, Depends(get_current_user_id)],
 ) -> CurrentUserResponse:
     with connection() as conn, conn.cursor() as cursor:
-        cursor.execute('''SELECT u.id, ai.provider, ai.email, u.display_name, u.avatar_url,
+        cursor.execute('''SELECT u.id, ai.provider, ai.email, u.display_name,
             u.calorie_goal, u.protein_goal, u.carbs_goal, u.fat_goal
             FROM users u JOIN auth_identities ai ON ai.user_id = u.id
             WHERE u.id = %s ORDER BY ai.created_at LIMIT 1 FOR UPDATE OF u''', (user_id,))

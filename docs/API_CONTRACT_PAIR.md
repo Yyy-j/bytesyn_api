@@ -34,8 +34,7 @@ All successful Pair endpoints return the same JSON shape:
   "members": [
     {
       "user_id": "uuid",
-      "display_name": null,
-      "avatar_url": null
+      "display_name": null
     }
   ],
   "created_at": "2026-01-01T00:00:00Z"

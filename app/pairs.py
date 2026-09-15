@@ -19,7 +19,6 @@ _INVITE_ALPHABET = string.ascii_uppercase + string.digits
 class PairMemberResponse(BaseModel):
     user_id: UUID
     display_name: str | None = None
-    avatar_url: str | None = None
 
 
 class PairResponse(BaseModel):
@@ -45,7 +44,7 @@ def _pair_response(cursor, pair_id: UUID) -> PairResponse:
     cursor.execute(
         """
         SELECT p.id AS pair_id, p.invite_code, p.created_at, pm.user_id,
-               u.display_name, u.avatar_url
+               u.display_name
         FROM pairs AS p
         JOIN pair_members AS pm ON pm.pair_id = p.id
         JOIN users AS u ON u.id = pm.user_id
@@ -69,7 +68,6 @@ def _pair_response(cursor, pair_id: UUID) -> PairResponse:
             PairMemberResponse(
                 user_id=row["user_id"],
                 display_name=row["display_name"],
-                avatar_url=row["avatar_url"],
             )
             for row in rows
         ],
