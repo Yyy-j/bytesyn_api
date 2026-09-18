@@ -30,10 +30,18 @@ def summary(context, user, date=DATE):
     return response.json()
 
 
+def monthly(context, user, month='2026-09'):
+    response = context[0].get('/summary/monthly', headers=headers(user), params={'month':month})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
 @pytest.mark.parametrize('auth', [{}, {'Authorization':'Bearer invalid'}, {'Authorization':'Basic invalid'}])
 def test_summary_unauthenticated(context, auth):
-    response = context[0].get('/summary/daily', params={'date':DATE}, headers=auth)
-    assert response.status_code == 401
+    for path, params in [('/summary/daily', {'date':DATE}),
+                         ('/summary/monthly', {'month':'2026-09'})]:
+        response = context[0].get(path, params=params, headers=auth)
+        assert response.status_code == 401
 
 
 def test_summary_unpaired(context):
@@ -148,3 +156,97 @@ def test_summary_uses_member_goals_with_per_field_fallback(context):
         'calorie_goal':2200, 'protein_goal':120, 'carbs_goal':250, 'fat_goal':65}
     assert result['partner_goals'] == {
         'calorie_goal':1800, 'protein_goal':90, 'carbs_goal':200, 'fat_goal':55}
+
+
+@pytest.mark.parametrize('params', [{}, {'month':'2026-9'}, {'month':'2026-00'},
+    {'month':'2026-13'}, {'month':'abc'}, {'month':'2026/09'}])
+def test_monthly_invalid_month(context, params):
+    response = context[0].get('/summary/monthly', headers=headers(context[1][0]), params=params)
+    assert response.status_code == 422
+
+
+def test_monthly_unpaired(context):
+    response = context[0].get('/summary/monthly', headers=headers(context[1][3]),
+                               params={'month':'2026-09'})
+    assert response.status_code == 404
+    assert response.json() == {'detail':'Current pair not found'}
+
+
+@pytest.mark.parametrize('month,length', [('2026-02',28), ('2026-09',30),
+    ('2026-10',31), ('2028-02',29)])
+def test_monthly_empty_month_contains_every_day(context, month, length):
+    result = monthly(context, context[1][0], month)
+    assert result['month'] == month
+    assert len(result['days']) == length
+    assert result['days'][0]['date'] == month + '-01'
+    assert result['days'][-1]['date'].startswith(month + '-')
+    assert all(day['self_calories'] == 0 and day['partner_calories'] == 0
+               for day in result['days'])
+
+
+def test_monthly_cross_month_and_pair_isolation(context):
+    _, users, _ = context
+    meal_for(context, users[0], date='2026-08-31', base_calories=10)
+    meal_for(context, users[0], date='2026-09-01', base_calories=100)
+    meal_for(context, users[0], date='2026-09-30', base_calories=300)
+    meal_for(context, users[0], date='2026-10-01', base_calories=1000)
+    meal_for(context, users[2], date='2026-09-15', base_calories=9000)
+
+    result = monthly(context, users[0])
+    by_date = {day['date']: day for day in result['days']}
+    assert by_date['2026-09-01']['self_calories'] == 100
+    assert by_date['2026-09-30']['self_calories'] == 300
+    assert by_date['2026-09-15']['self_calories'] == 0
+    assert sum(day['self_calories'] for day in result['days']) == 400
+
+    other_pair = monthly(context, users[2])
+    assert other_pair['days'][14]['self_calories'] == 9000
+
+
+def test_monthly_goals_names_and_viewer_perspective(context):
+    _, users, _ = context
+    with get_connection() as conn:
+        conn.execute('UPDATE users SET display_name=%s, calorie_goal=%s WHERE id=%s',
+                     ('小明', 2200, users[0]))
+        conn.execute('UPDATE users SET display_name=%s, calorie_goal=NULL WHERE id=%s',
+                     ('小红', users[1]))
+    meal_for(context, users[0], base_calories=1200)
+    meal_for(context, users[1], base_calories=1700)
+
+    first = monthly(context, users[0])
+    second = monthly(context, users[1])
+    assert first['self'] == {'user_id':str(users[0]), 'display_name':'小明', 'calorie_goal':2200}
+    assert first['partner'] == {'user_id':str(users[1]), 'display_name':'小红', 'calorie_goal':2000}
+    assert first['days'][7]['self_calories'] == 1200
+    assert first['days'][7]['partner_calories'] == 1700
+    assert second['self'] == first['partner']
+    assert second['partner'] == first['self']
+    assert second['days'][7]['self_calories'] == 1700
+    assert second['days'][7]['partner_calories'] == 1200
+
+
+@pytest.mark.parametrize('mode', ['shared_half', 'shared_me_one_third',
+                                  'shared_me_two_thirds'])
+def test_monthly_shared_meals_use_stored_allocations(context, mode):
+    _, users, _ = context
+    meal = meal_for(context, users[0], share_mode=mode, base_calories=900)
+    with get_connection() as conn:
+        conn.execute('''UPDATE meals SET calories = CASE WHEN user_id = %s
+            THEN %s ELSE %s END WHERE shared_meal_id = %s''',
+                     (users[0], Decimal('101.11'), Decimal('202.22'),
+                      meal['shared_meal_id']))
+
+    result = monthly(context, users[0])
+    day = result['days'][7]
+    assert day['self_calories'] == pytest.approx(101.11)
+    assert day['partner_calories'] == pytest.approx(202.22)
+    assert isinstance(day['self_calories'], (int, float))
+    assert isinstance(day['partner_calories'], (int, float))
+
+
+def test_monthly_single_member_has_null_partner_values(context):
+    user = context[1][2]
+    result = monthly(context, user)
+    assert result['partner'] is None
+    assert all(day['partner_calories'] is None for day in result['days'])
+    assert result['self']['calorie_goal'] == 2000
