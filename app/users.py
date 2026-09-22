@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 from decimal import Decimal
 
@@ -31,6 +31,7 @@ class CurrentUserResponse(BaseModel):
     email: str | None
     provider: str
     display_name: str | None
+    character: Literal['boy', 'girl']
     goals: NutritionGoals
 
 
@@ -45,6 +46,7 @@ class PatchNutritionGoals(BaseModel):
 class PatchCurrentUser(BaseModel):
     model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
     display_name: str | None = Field(default=None, max_length=100)
+    character: Literal['boy', 'girl'] | None = None
     goals: PatchNutritionGoals | None = None
 
     @field_validator('display_name')
@@ -55,13 +57,22 @@ class PatchCurrentUser(BaseModel):
         clean = value.strip()
         return clean or None
 
+    @field_validator('character')
+    @classmethod
+    def reject_null_character(cls, value):
+        if value is None:
+            raise ValueError('character must be boy or girl')
+        return value
+
 
 def user_response(user: dict[str, object]) -> CurrentUserResponse:
     goals = {
         name: user[column] if user[column] is not None else DEFAULT_GOALS[name]
         for name, column in GOAL_COLUMNS.items()
     }
-    return CurrentUserResponse(**user, goals=goals)
+    response = dict(user)
+    response['character'] = user.get('character') or 'boy'
+    return CurrentUserResponse(**response, goals=goals)
 
 
 @router.get("/me", response_model=CurrentUserResponse)
@@ -84,7 +95,7 @@ def patch_me(
     user_id: Annotated[UUID, Depends(get_current_user_id)],
 ) -> CurrentUserResponse:
     with connection() as conn, conn.cursor() as cursor:
-        cursor.execute('''SELECT u.id, ai.provider, ai.email, u.display_name,
+        cursor.execute('''SELECT u.id, ai.provider, ai.email, u.display_name, u.character,
             u.calorie_goal, u.protein_goal, u.carbs_goal, u.fat_goal
             FROM users u JOIN auth_identities ai ON ai.user_id = u.id
             WHERE u.id = %s ORDER BY ai.created_at LIMIT 1 FOR UPDATE OF u''', (user_id,))

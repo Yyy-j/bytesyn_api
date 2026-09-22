@@ -54,7 +54,8 @@ def test_summary_one_member_empty(context):
     user = context[1][2]
     result = summary(context, user)
     assert result == dict(date=DATE, **ZERO, meal_count=0, meals=[],
-                         self_slice=dict(user_id=str(user), display_name='未命名成员', **ZERO),
+                         self_slice=dict(user_id=str(user), display_name='未命名成员',
+                                         character='boy', **ZERO),
                          partner_slice=None, self_goals=GOALS, partner_goals=None)
 
 
@@ -90,8 +91,10 @@ def test_summary_two_members_shared_and_viewer_perspective(context):
     assert {key:result[key] for key in ZERO} == dict(calories=600,protein=60,carbs=120,fat=24)
     assert result['meal_count'] == 4  # Both persisted shared allocations count.
     assert result['self_slice'] == dict(user_id=str(users[0]), display_name='未命名成员',
+                                       character='boy',
                                        calories=200,protein=20,carbs=40,fat=8)
     assert result['partner_slice'] == dict(user_id=str(users[1]), display_name='未命名成员',
+                                          character='boy',
                                           calories=400,protein=40,carbs=80,fat=16)
     assert result['self_goals'] == result['partner_goals'] == GOALS
     assert result['meals'] == client.get('/meals', headers=headers(users[0]), params={'date':DATE}).json()['meals']
@@ -215,8 +218,10 @@ def test_monthly_goals_names_and_viewer_perspective(context):
 
     first = monthly(context, users[0])
     second = monthly(context, users[1])
-    assert first['self'] == {'user_id':str(users[0]), 'display_name':'小明', 'calorie_goal':2200}
-    assert first['partner'] == {'user_id':str(users[1]), 'display_name':'小红', 'calorie_goal':2000}
+    assert first['self'] == {'user_id':str(users[0]), 'display_name':'小明',
+                             'character':'boy', 'calorie_goal':2200}
+    assert first['partner'] == {'user_id':str(users[1]), 'display_name':'小红',
+                                'character':'boy', 'calorie_goal':2000}
     assert first['days'][7]['self_calories'] == 1200
     assert first['days'][7]['partner_calories'] == 1700
     assert second['self'] == first['partner']

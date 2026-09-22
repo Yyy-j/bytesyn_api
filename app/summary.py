@@ -41,6 +41,7 @@ def daily_summary(
         # Keep profile goals in the same repeatable-read snapshot as meal totals.
         cursor.execute('''SELECT u.id AS user_id,
             COALESCE(NULLIF(BTRIM(u.display_name), ''), '未命名成员') AS display_name,
+            u.character,
             u.calorie_goal, u.protein_goal, u.carbs_goal, u.fat_goal
             FROM users u JOIN pair_members pm ON pm.user_id = u.id
             WHERE pm.pair_id = %s ORDER BY u.id''', (pair_id,))
@@ -51,7 +52,8 @@ def daily_summary(
         member_data = {member['user_id']: member for member in members}
         slices = {
             member['user_id']: dict(
-                user_id=member['user_id'], display_name=member['display_name'], **_totals([
+                user_id=member['user_id'], display_name=member['display_name'],
+                character=member['character'] or 'boy', **_totals([
                 row for row in rows if row['user_id'] == member['user_id']
             ])) for member in members
         }
@@ -84,6 +86,7 @@ def monthly_summary(
             raise HTTPException(404, 'Current pair not found')
         cursor.execute('''SELECT u.id AS user_id,
             COALESCE(NULLIF(BTRIM(u.display_name), ''), '未命名成员') AS display_name,
+            u.character,
             u.calorie_goal, u.protein_goal, u.carbs_goal, u.fat_goal
             FROM users u JOIN pair_members pm ON pm.user_id = u.id
             WHERE pm.pair_id = %s ORDER BY u.id''', (pair_id,))
@@ -117,11 +120,13 @@ def monthly_summary(
             'self': {
                 'user_id': user_id,
                 'display_name': member_data[user_id]['display_name'],
+                'character': member_data[user_id]['character'] or 'boy',
                 'calorie_goal': _goals(member_data[user_id])['calorie_goal'],
             },
             'partner': ({
                 'user_id': partner['user_id'],
                 'display_name': partner['display_name'],
+                'character': partner['character'] or 'boy',
                 'calorie_goal': _goals(partner)['calorie_goal'],
             } if partner else None),
             'days': days,

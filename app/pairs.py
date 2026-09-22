@@ -1,7 +1,7 @@
 import secrets
 import string
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -19,6 +19,7 @@ _INVITE_ALPHABET = string.ascii_uppercase + string.digits
 class PairMemberResponse(BaseModel):
     user_id: UUID
     display_name: str | None = None
+    character: Literal['boy', 'girl']
 
 
 class PairResponse(BaseModel):
@@ -44,7 +45,7 @@ def _pair_response(cursor, pair_id: UUID) -> PairResponse:
     cursor.execute(
         """
         SELECT p.id AS pair_id, p.invite_code, p.created_at, pm.user_id,
-               u.display_name
+               u.display_name, u.character
         FROM pairs AS p
         JOIN pair_members AS pm ON pm.pair_id = p.id
         JOIN users AS u ON u.id = pm.user_id
@@ -68,6 +69,7 @@ def _pair_response(cursor, pair_id: UUID) -> PairResponse:
             PairMemberResponse(
                 user_id=row["user_id"],
                 display_name=row["display_name"],
+                character=row["character"] or "boy",
             )
             for row in rows
         ],
