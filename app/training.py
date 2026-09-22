@@ -404,3 +404,43 @@ def patch_set(
             "completed_sets": item["completed_sets"],
             "set": _public_set_detail(detail),
         }
+
+
+@router.delete("/weeks/{week_id}/items/{item_id}/sets/{request_id}")
+def delete_set(week_id: WeekId, item_id: str, request_id: str, user_id: User):
+    with connection() as conn, conn.cursor() as cursor:
+        week = _week(cursor, user_id, week_id, lock=True)
+        days = deepcopy(week["days"])
+        item = _find_item(days, item_id)
+        if item is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Training item not found")
+
+        set_details = item.get("set_details", [])
+        detail_index = next(
+            (
+                index
+                for index, detail in enumerate(set_details)
+                if detail["request_id"] == request_id
+            ),
+            None,
+        )
+        if detail_index is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Training set not found")
+
+        del set_details[detail_index]
+        for index, detail in enumerate(set_details, start=1):
+            detail["set_index"] = index
+        item["completed_sets"] = len(set_details)
+        now = _now()
+        cursor.execute(
+            """UPDATE training_weeks SET days = %s, updated_at = %s
+               WHERE id = %s AND user_id = %s RETURNING *""",
+            (Jsonb(days), now, week["id"], user_id),
+        )
+        cursor.fetchone()
+        return {
+            "deleted": True,
+            "request_id": request_id,
+            "completed_sets": item["completed_sets"],
+            "target_sets": item["target_sets"],
+        }

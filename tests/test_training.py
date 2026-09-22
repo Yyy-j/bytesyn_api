@@ -79,6 +79,7 @@ def test_training_endpoints_require_jwt(context):
         ("post", "/training/weeks/current/sync", None),
         ("post", f"/training/weeks/{week_id}/items/x/sets", {"request_id": "x"}),
         ("patch", f"/training/weeks/{week_id}/items/x/sets/x", {"reps": 1}),
+        ("delete", f"/training/weeks/{week_id}/items/x/sets/x", None),
     ]
     for method, path, body in calls:
         assert client.request(method, path, json=body).status_code == 401
@@ -309,6 +310,19 @@ def test_sync_merges_by_item_id_and_retains_recorded_deletions(context):
     )
     assert_final_json_contract(synced)
 
+    deleted = client.delete(
+        f"/training/weeks/{week['week_id']}/items/drop-recorded/sets/drop-1",
+        headers=headers(user),
+    )
+    assert deleted.status_code == 200, deleted.text
+    after_delete = client.get(
+        f"/training/weeks/{week['week_id']}", headers=headers(user)
+    ).json()
+    retained = find_item(after_delete, "drop-recorded")
+    assert retained["removed_from_template"] is True
+    assert retained["set_details"] == []
+    assert retained["completed_sets"] == 0
+
 
 def test_set_checkin_idempotency_server_count_and_update(context):
     client, users, _ = context
@@ -415,6 +429,131 @@ def test_set_duration_create_patch_clear_and_legacy_read(context):
     assert find_item(fetched, "bike")["set_details"][0]["duration_seconds"] is None
 
 
+def test_delete_middle_set_renumbers_preserves_fields_and_allows_next_set(context):
+    client, users, _ = context
+    user = users[0]
+    week = create_current(client, user, template(item("squat", target_sets=3)))
+    sets_url = f"/training/weeks/{week['week_id']}/items/squat/sets"
+    bodies = [
+        {
+            "request_id": "A",
+            "weight": 40,
+            "reps": 10,
+            "rpe": 7,
+            "duration_seconds": 60,
+            "remark": "first",
+        },
+        {
+            "request_id": "B",
+            "weight": 45,
+            "reps": 9,
+            "rpe": 8,
+            "duration_seconds": 70,
+            "remark": "middle",
+        },
+        {
+            "request_id": "C",
+            "weight": 50,
+            "reps": 8,
+            "rpe": 9,
+            "duration_seconds": 80,
+            "remark": "last",
+        },
+    ]
+    created = []
+    for body in bodies:
+        response = client.post(sets_url, headers=headers(user), json=body)
+        assert response.status_code == 201, response.text
+        created.append(response.json()["set"])
+
+    response = client.delete(f"{sets_url}/B", headers=headers(user))
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "deleted": True,
+        "request_id": "B",
+        "completed_sets": 2,
+        "target_sets": 3,
+    }
+
+    fetched = client.get(
+        f"/training/weeks/{week['week_id']}", headers=headers(user)
+    ).json()
+    remaining = find_item(fetched, "squat")["set_details"]
+    assert [detail["request_id"] for detail in remaining] == ["A", "C"]
+    assert [detail["set_index"] for detail in remaining] == [1, 2]
+    preserved_fields = (
+        "request_id",
+        "weight",
+        "reps",
+        "rpe",
+        "duration_seconds",
+        "remark",
+        "completed_at",
+    )
+    for actual, original in zip(remaining, (created[0], created[2])):
+        assert {field: actual[field] for field in preserved_fields} == {
+            field: original[field] for field in preserved_fields
+        }
+
+    added = client.post(
+        sets_url,
+        headers=headers(user),
+        json={"request_id": "D", "weight": 55, "reps": 7},
+    )
+    assert added.status_code == 201, added.text
+    assert added.json()["set"]["set_index"] == 3
+    assert added.json()["completed_sets"] == 3
+
+
+def test_delete_last_set_keeps_exercise(context):
+    client, users, _ = context
+    user = users[0]
+    week = create_current(client, user, template(item("squat", target_sets=3)))
+    sets_url = f"/training/weeks/{week['week_id']}/items/squat/sets"
+    assert client.post(
+        sets_url, headers=headers(user), json={"request_id": "A", "reps": 10}
+    ).status_code == 201
+
+    response = client.delete(f"{sets_url}/A", headers=headers(user))
+    assert response.status_code == 200, response.text
+    assert response.json()["completed_sets"] == 0
+    assert response.json()["target_sets"] == 3
+
+    fetched = client.get(
+        f"/training/weeks/{week['week_id']}", headers=headers(user)
+    ).json()
+    exercise = find_item(fetched, "squat")
+    assert exercise["set_details"] == []
+    assert exercise["completed_sets"] == 0
+    assert exercise["target_sets"] == 3
+
+
+def test_delete_set_not_found_errors(context):
+    client, users, _ = context
+    user = users[0]
+    week = create_current(client, user)
+    base = f"/training/weeks/{week['week_id']}/items"
+
+    missing_set = client.delete(
+        f"{base}/squat/sets/unknown-request-id", headers=headers(user)
+    )
+    assert missing_set.status_code == 404
+    assert missing_set.json()["detail"] == "Training set not found"
+
+    missing_item = client.delete(
+        f"{base}/unknown-item/sets/unknown-request-id", headers=headers(user)
+    )
+    assert missing_item.status_code == 404
+    assert missing_item.json()["detail"] == "Training item not found"
+
+    missing_week = client.delete(
+        "/training/weeks/1999-W52/items/squat/sets/unknown-request-id",
+        headers=headers(user),
+    )
+    assert missing_week.status_code == 404
+    assert missing_week.json()["detail"] == "Training week not found"
+
+
 def test_user_isolation_for_template_week_and_sets(context):
     client, users, _ = context
     owner, stranger = users[0], users[2]
@@ -435,6 +574,19 @@ def test_user_isolation_for_template_week_and_sets(context):
         headers=headers(stranger),
         json={"reps": 1},
     ).status_code == 404
+    sets_url = f"/training/weeks/{week['week_id']}/items/squat/sets"
+    assert client.post(
+        sets_url, headers=headers(owner), json={"request_id": "owner-set"}
+    ).status_code == 201
+    assert client.delete(
+        f"{sets_url}/owner-set", headers=headers(stranger)
+    ).status_code == 404
+    fetched = client.get(
+        f"/training/weeks/{week['week_id']}", headers=headers(owner)
+    ).json()
+    assert [
+        detail["request_id"] for detail in find_item(fetched, "squat")["set_details"]
+    ] == ["owner-set"]
 
 
 def test_request_id_cannot_move_between_items(context):
