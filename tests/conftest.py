@@ -48,6 +48,8 @@ def database():
         conn.execute((ROOT / 'app/migrations/011_drop_user_avatar_url.sql').read_text())
         conn.execute((ROOT / 'app/migrations/012_user_character.sql').read_text())
         conn.execute((ROOT / 'app/migrations/012_user_character.sql').read_text())
+        conn.execute((ROOT / 'app/migrations/013_meal_favorites.sql').read_text())
+        conn.execute((ROOT / 'app/migrations/013_meal_favorites.sql').read_text())
     yield
     with psycopg.connect(host=os.environ['DATABASE_HOST'], port=os.environ['DATABASE_PORT'],
                          dbname='postgres', user='postgres', password='test-only',

@@ -99,6 +99,11 @@ class PatchMeal(BaseModel):
         return value or []
 
 
+class CreateFavorite(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    meal_id: UUID
+
+
 def conflict(detail):
     raise HTTPException(409, detail)
 
@@ -135,6 +140,18 @@ def public_meal(row):
     result['dishes'] = result['dishes'] or []
     result['meal_time'] = row['meal_time'].strftime('%H:%M')
     # Pydantic serializes Decimal as strings; Flutter requires JSON numbers.
+    return jsonable_encoder(result, custom_encoder={Decimal: float})
+
+
+def public_reusable(*, meal=None, favorite=None):
+    source = favorite or meal
+    result = {
+        'meal_id': favorite['source_meal_id'] if favorite else meal['id'],
+        'favorite_id': favorite['id'] if favorite else None,
+        'name': source['name'],
+        **{macro: source[macro] for macro in MACROS},
+        'is_favorite': favorite is not None,
+    }
     return jsonable_encoder(result, custom_encoder={Decimal: float})
 
 
@@ -231,17 +248,62 @@ def recent_meals(user_id: User, limit: Annotated[int, Query(ge=1, le=10)] = 3):
 
 @router.get('/reuse')
 def reuse_meals(user_id: User, date: Annotated[Date, Query()],
-                limit: Annotated[int, Query(ge=1, le=10)] = 3):
+                limit: Annotated[int, Query(ge=1, le=5)] = 5):
     with connection() as conn, conn.cursor() as cursor:
         pair_id, _ = pair_context(cursor, user_id)
-        cursor.execute('''SELECT * FROM (
-            SELECT DISTINCT ON (COALESCE(shared_meal_id, id)) * FROM meals
-            WHERE pair_id = %s AND user_id = %s AND meal_date = %s
-            ORDER BY COALESCE(shared_meal_id, id), meal_time DESC NULLS LAST,
-                     created_at DESC, id DESC
-        ) reusable ORDER BY meal_time DESC NULLS LAST, created_at DESC, id DESC LIMIT %s''',
-                       (pair_id, user_id, date, limit))
-        return {'meals': [public_meal(row) for row in cursor.fetchall()]}
+        cursor.execute('''SELECT * FROM meal_favorites WHERE user_id = %s
+            ORDER BY created_at, id LIMIT %s''', (user_id, limit))
+        favorites = cursor.fetchall()
+        remaining = limit - len(favorites)
+        meals = []
+        if remaining:
+            source_ids = [row['source_meal_id'] for row in favorites
+                          if row['source_meal_id'] is not None]
+            cursor.execute('''SELECT * FROM (
+                SELECT DISTINCT ON (COALESCE(shared_meal_id, id)) * FROM meals
+                WHERE pair_id = %s AND user_id = %s AND meal_date = %s
+                  AND NOT (id = ANY(%s))
+                ORDER BY COALESCE(shared_meal_id, id), meal_time DESC NULLS LAST,
+                         created_at DESC, id DESC
+            ) reusable ORDER BY meal_time DESC NULLS LAST, created_at DESC, id DESC LIMIT %s''',
+                           (pair_id, user_id, date, source_ids, remaining))
+            meals = cursor.fetchall()
+        return {'items': [public_reusable(favorite=row) for row in favorites]
+                + [public_reusable(meal=row) for row in meals]}
+
+
+@router.post('/favorites', status_code=201)
+def create_favorite(body: CreateFavorite, user_id: User):
+    with connection() as conn, conn.cursor() as cursor:
+        pair_id, _ = pair_context(cursor, user_id)
+        meal = find_meal(cursor, pair_id, body.meal_id)
+        if meal['user_id'] != user_id:
+            raise HTTPException(404, 'Meal not found')
+        cursor.execute('''SELECT * FROM meal_favorites
+            WHERE user_id = %s AND source_meal_id = %s''', (user_id, body.meal_id))
+        existing = cursor.fetchone()
+        if existing is not None:
+            return public_reusable(favorite=existing)
+        cursor.execute('SELECT count(*) AS total FROM meal_favorites WHERE user_id = %s',
+                       (user_id,))
+        if cursor.fetchone()['total'] >= 5:
+            conflict('Favorite limit reached')
+        cursor.execute('''INSERT INTO meal_favorites
+            (user_id, source_meal_id, name, calories, protein, carbs, fat)
+            VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *''',
+                       (user_id, body.meal_id, meal['name'],
+                        *(meal[macro] for macro in MACROS)))
+        return public_reusable(favorite=cursor.fetchone())
+
+
+@router.delete('/favorites/{favorite_id}', status_code=204)
+def delete_favorite(favorite_id: UUID, user_id: User):
+    with connection() as conn, conn.cursor() as cursor:
+        cursor.execute('''DELETE FROM meal_favorites WHERE id = %s AND user_id = %s
+            RETURNING id''', (favorite_id, user_id))
+        if cursor.fetchone() is None:
+            raise HTTPException(404, 'Meal favorite not found')
+        return Response(status_code=204)
 
 
 @router.get('/{meal_id}')

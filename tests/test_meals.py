@@ -25,6 +25,7 @@ def group(meal):
 
 @pytest.mark.parametrize('method,path', [('post','/meals'), ('get','/meals?date=2026-09-08'),
     ('get','/meals/recent'), ('get','/meals/reuse?date=2026-09-08'),
+    ('post','/meals/favorites'), ('delete',f'/meals/favorites/{uuid4()}'),
     ('get',f'/meals/{uuid4()}'), ('patch',f'/meals/{uuid4()}'),
     ('delete',f'/meals/{uuid4()}')])
 def test_unauthenticated(context, method, path):
@@ -314,15 +315,113 @@ def test_reuse_is_date_scoped_owned_ordered_and_limited(context):
         conn.execute('UPDATE meals SET meal_date = %s WHERE id = %s',
                      ('2026-09-12', other_date['id']))
     result = client.get('/meals/reuse', headers=headers(users[0]),
-                        params={'date':target, 'limit':10}).json()['meals']
+                        params={'date':target, 'limit':5}).json()['items']
     assert [meal['name'] for meal in result] == ['shared', 'own']
-    assert all(meal['user_id'] == str(users[0]) for meal in result)
-    assert sum(meal['shared_meal_id'] == shared['shared_meal_id'] for meal in result) == 1
+    assert all(not meal['is_favorite'] and meal['favorite_id'] is None for meal in result)
     limited = client.get('/meals/reuse', headers=headers(users[0]),
-                         params={'date':target, 'limit':1}).json()['meals']
+                         params={'date':target, 'limit':1}).json()['items']
     assert [meal['name'] for meal in limited] == ['shared']
+    assert client.get('/meals/reuse', headers=headers(users[0]),
+                      params={'date':target, 'limit':6}).status_code == 422
     assert client.get('/meals/reuse', headers=headers(users[3]),
                       params={'date':target}).status_code == 404
+
+
+def test_favorite_create_duplicate_delete_and_user_isolation(context):
+    client, users, _ = context
+    meal = create(context, name='favorite', base_calories=321,
+                  base_protein=12, base_carbs=34, base_fat=5)
+    response = client.post('/meals/favorites', headers=headers(users[0]),
+                           json={'meal_id':meal['id']})
+    assert response.status_code == 201, response.text
+    favorite = response.json()
+    assert favorite == {
+        'meal_id':meal['id'], 'favorite_id':favorite['favorite_id'],
+        'name':'favorite', 'calories':321, 'protein':12, 'carbs':34, 'fat':5,
+        'is_favorite':True,
+    }
+
+    duplicate = client.post('/meals/favorites', headers=headers(users[0]),
+                            json={'meal_id':meal['id']})
+    assert duplicate.status_code == 201
+    assert duplicate.json() == favorite
+    with get_connection() as conn:
+        count = conn.execute(
+            'SELECT count(*) AS total FROM meal_favorites WHERE user_id = %s',
+            (users[0],)).fetchone()['total']
+    assert count == 1
+
+    assert client.post('/meals/favorites', headers=headers(users[1]),
+                       json={'meal_id':meal['id']}).status_code == 404
+    path = '/meals/favorites/' + favorite['favorite_id']
+    assert client.delete(path, headers=headers(users[1])).status_code == 404
+    assert client.delete(path, headers=headers(users[0])).status_code == 204
+
+
+def test_favorite_limit_and_reuse_across_dates(context):
+    client, users, _ = context
+    favorites = []
+    for index in range(6):
+        meal = create(context, name=f'favorite-{index}', meal_time=f'0{index}:00')
+        response = client.post('/meals/favorites', headers=headers(users[0]),
+                               json={'meal_id':meal['id']})
+        if index < 5:
+            assert response.status_code == 201, response.text
+            favorites.append(response.json())
+        else:
+            assert response.status_code == 409
+            assert response.json()['detail'] == 'Favorite limit reached'
+
+    for target in ('2026-01-01', '2026-12-31'):
+        items = client.get('/meals/reuse', headers=headers(users[0]),
+                           params={'date':target, 'limit':5}).json()['items']
+        assert [item['favorite_id'] for item in items] == [
+            item['favorite_id'] for item in favorites]
+        assert len(items) == 5
+        assert all(item['is_favorite'] for item in items)
+
+
+def test_favorite_snapshot_survives_source_meal_delete(context):
+    client, users, _ = context
+    meal = create(context, name='persistent snapshot', base_calories=456,
+                  base_protein=23, base_carbs=45, base_fat=6)
+    favorite = client.post('/meals/favorites', headers=headers(users[0]),
+                           json={'meal_id':meal['id']}).json()
+    assert client.delete('/meals/' + meal['id'],
+                         headers=headers(users[0])).status_code == 204
+
+    items = client.get('/meals/reuse', headers=headers(users[0]),
+                       params={'date':'1900-01-01', 'limit':5}).json()['items']
+    assert items == [favorite | {'meal_id':None}]
+
+
+def test_reuse_favorites_first_deduplicates_and_fills_remaining(context):
+    client, users, _ = context
+    target = '2026-09-13'
+    favorite_target = create(context, name='favorite target', meal_time='19:00')
+    favorite_other = create(context, name='favorite other', meal_time='08:00')
+    normal = [
+        create(context, name=f'normal-{index}', meal_time=f'{23-index}:00')
+        for index in range(4)
+    ]
+    with get_connection() as conn:
+        conn.execute('UPDATE meals SET meal_date = %s WHERE id = %s',
+                     (target, favorite_target['id']))
+        for meal in normal:
+            conn.execute('UPDATE meals SET meal_date = %s WHERE id = %s',
+                         (target, meal['id']))
+        conn.execute('UPDATE meals SET meal_date = %s WHERE id = %s',
+                     ('2026-09-12', favorite_other['id']))
+    for meal in (favorite_target, favorite_other):
+        assert client.post('/meals/favorites', headers=headers(users[0]),
+                           json={'meal_id':meal['id']}).status_code == 201
+
+    items = client.get('/meals/reuse', headers=headers(users[0]),
+                       params={'date':target, 'limit':5}).json()['items']
+    assert [item['name'] for item in items] == [
+        'favorite target', 'favorite other', 'normal-0', 'normal-1', 'normal-2']
+    assert [item['is_favorite'] for item in items] == [True, True, False, False, False]
+    assert sum(item['meal_id'] == favorite_target['id'] for item in items) == 1
 
 
 def test_clean_database_migration():
