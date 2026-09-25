@@ -248,25 +248,34 @@ def recent_meals(user_id: User, limit: Annotated[int, Query(ge=1, le=10)] = 3):
 
 @router.get('/reuse')
 def reuse_meals(user_id: User, date: Annotated[Date, Query()],
-                limit: Annotated[int, Query(ge=1, le=5)] = 5):
+                limit: Annotated[int | None, Query(ge=1, le=5)] = None):
     with connection() as conn, conn.cursor() as cursor:
         pair_id, _ = pair_context(cursor, user_id)
-        cursor.execute('''SELECT * FROM meal_favorites WHERE user_id = %s
-            ORDER BY created_at, id LIMIT %s''', (user_id, limit))
+        favorites_query = '''SELECT * FROM meal_favorites WHERE user_id = %s
+            ORDER BY created_at, id'''
+        favorites_params = [user_id]
+        if limit is not None:
+            favorites_query += ' LIMIT %s'
+            favorites_params.append(limit)
+        cursor.execute(favorites_query, favorites_params)
         favorites = cursor.fetchall()
-        remaining = limit - len(favorites)
+        remaining = None if limit is None else limit - len(favorites)
         meals = []
-        if remaining:
+        if remaining is None or remaining > 0:
             source_ids = [row['source_meal_id'] for row in favorites
                           if row['source_meal_id'] is not None]
-            cursor.execute('''SELECT * FROM (
+            meals_query = '''SELECT * FROM (
                 SELECT DISTINCT ON (COALESCE(shared_meal_id, id)) * FROM meals
                 WHERE pair_id = %s AND user_id = %s AND meal_date = %s
                   AND NOT (id = ANY(%s))
                 ORDER BY COALESCE(shared_meal_id, id), meal_time DESC NULLS LAST,
                          created_at DESC, id DESC
-            ) reusable ORDER BY meal_time DESC NULLS LAST, created_at DESC, id DESC LIMIT %s''',
-                           (pair_id, user_id, date, source_ids, remaining))
+            ) reusable ORDER BY meal_time DESC NULLS LAST, created_at DESC, id DESC'''
+            meals_params = [pair_id, user_id, date, source_ids]
+            if remaining is not None:
+                meals_query += ' LIMIT %s'
+                meals_params.append(remaining)
+            cursor.execute(meals_query, meals_params)
             meals = cursor.fetchall()
         return {'items': [public_reusable(favorite=row) for row in favorites]
                 + [public_reusable(meal=row) for row in meals]}

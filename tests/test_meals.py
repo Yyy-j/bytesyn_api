@@ -327,6 +327,28 @@ def test_reuse_is_date_scoped_owned_ordered_and_limited(context):
                       params={'date':target}).status_code == 404
 
 
+def test_reuse_without_limit_returns_all_items_for_date(context):
+    client, users, _ = context
+    target = '2026-09-13'
+    meals = [
+        create(context, name=f'reusable-{index}', meal_time=f'{10 + index}:00')
+        for index in range(7)
+    ]
+    with get_connection() as conn:
+        conn.execute('UPDATE meals SET meal_date = %s WHERE id = ANY(%s)',
+                     (target, [meal['id'] for meal in meals]))
+
+    unlimited = client.get('/meals/reuse', headers=headers(users[0]),
+                           params={'date':target}).json()['items']
+    assert [item['name'] for item in unlimited] == [
+        f'reusable-{index}' for index in reversed(range(7))]
+
+    limited = client.get('/meals/reuse', headers=headers(users[0]),
+                         params={'date':target, 'limit':5}).json()['items']
+    assert [item['name'] for item in limited] == [
+        f'reusable-{index}' for index in reversed(range(2, 7))]
+
+
 def test_favorite_create_duplicate_delete_and_user_isolation(context):
     client, users, _ = context
     meal = create(context, name='favorite', base_calories=321,
