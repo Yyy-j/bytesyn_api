@@ -71,6 +71,20 @@ def _validate_target_date(value: date, today: date) -> None:
         raise ValueError("target_date must not be in the past")
 
 
+def _validate_goal_timeline(
+    current_weight_kg: Decimal,
+    target_weight_kg: Decimal,
+    target_date: date,
+    today: date,
+) -> None:
+    _validate_target_date(target_date, today)
+    if (
+        target_date == today
+        and abs(target_weight_kg - current_weight_kg) > MAINTAIN_TOLERANCE_KG
+    ):
+        raise ValueError("target_date must be in the future for weight change")
+
+
 def _invalid_authentication() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -150,12 +164,12 @@ class RecommendationRequest(BaseModel):
     def validate_dates(self):
         today = _today()
         _validate_birth_year(self.birth_year, today)
-        _validate_target_date(self.target_date, today)
-        if self.target_date == today and (
-            abs(self.target_weight_kg - self.current_weight_kg)
-            > MAINTAIN_TOLERANCE_KG
-        ):
-            raise ValueError("target_date must be in the future for weight change")
+        _validate_goal_timeline(
+            self.current_weight_kg,
+            self.target_weight_kg,
+            self.target_date,
+            today,
+        )
         return self
 
 
@@ -208,7 +222,12 @@ class OnboardingRequest(BaseModel):
     def validate_dates(self):
         today = _today()
         _validate_birth_year(self.birth_year, today)
-        _validate_target_date(self.target_date, today)
+        _validate_goal_timeline(
+            self.current_weight_kg,
+            self.target_weight_kg,
+            self.target_date,
+            today,
+        )
         return self
 
 
@@ -228,6 +247,72 @@ def _measurement_response(row: dict[str, object]) -> WeightMeasurementResponse:
     return WeightMeasurementResponse(
         **row,
         bmi=_bmi(row["weight_kg"], row["height_cm_snapshot"]),
+    )
+
+
+_ONBOARDING_PROFILE_COLUMNS = (
+    "birth_year",
+    "sex_for_energy_estimate",
+    "height_cm",
+    "target_weight_kg",
+    "target_date",
+    "activity_level",
+    "calorie_goal",
+    "protein_goal",
+    "carbs_goal",
+    "fat_goal",
+)
+
+
+def _has_complete_onboarding_profile(user: dict[str, object]) -> bool:
+    return all(user[column] is not None for column in _ONBOARDING_PROFILE_COLUMNS)
+
+
+def _onboarding_matches(
+    user: dict[str, object],
+    measurement: dict[str, object] | None,
+    body: OnboardingRequest,
+) -> bool:
+    if measurement is None:
+        return False
+    expected = {
+        "birth_year": body.birth_year,
+        "sex_for_energy_estimate": body.sex_for_energy_estimate,
+        "height_cm": body.height_cm,
+        "target_weight_kg": body.target_weight_kg,
+        "target_date": body.target_date,
+        "activity_level": body.activity_level,
+        "calorie_goal": body.goals.calories,
+        "protein_goal": body.goals.protein,
+        "carbs_goal": body.goals.carbs,
+        "fat_goal": body.goals.fat,
+    }
+    return (
+        all(user[column] == value for column, value in expected.items())
+        and measurement["weight_kg"] == body.current_weight_kg
+        and measurement["height_cm_snapshot"] == body.height_cm
+    )
+
+
+def _onboarding_response(
+    user: dict[str, object],
+    measurement: dict[str, object],
+) -> OnboardingResponse:
+    return OnboardingResponse(
+        onboarding_completed_at=user["onboarding_completed_at"],
+        birth_year=user["birth_year"],
+        sex_for_energy_estimate=user["sex_for_energy_estimate"],
+        height_cm=float(user["height_cm"]),
+        target_weight_kg=float(user["target_weight_kg"]),
+        target_date=user["target_date"],
+        activity_level=user["activity_level"],
+        goals=SavedGoals(
+            calories=float(user["calorie_goal"]),
+            protein=float(user["protein_goal"]),
+            carbs=float(user["carbs_goal"]),
+            fat=float(user["fat_goal"]),
+        ),
+        current_weight=_measurement_response(measurement),
     )
 
 
@@ -502,9 +587,37 @@ def complete_onboarding(
 ) -> OnboardingResponse:
     measured_on = _today()
     with connection() as conn, conn.cursor() as cursor:
-        cursor.execute("SELECT id FROM users WHERE id = %s FOR UPDATE", (user_id,))
-        if cursor.fetchone() is None:
+        cursor.execute(
+            """SELECT id, onboarding_completed_at, birth_year,
+                      sex_for_energy_estimate, height_cm, target_weight_kg,
+                      target_date, activity_level, calorie_goal, protein_goal,
+                      carbs_goal, fat_goal
+               FROM users WHERE id = %s FOR UPDATE""",
+            (user_id,),
+        )
+        user = cursor.fetchone()
+        if user is None:
             raise _invalid_authentication()
+
+        if (
+            user["onboarding_completed_at"] is not None
+            and _has_complete_onboarding_profile(user)
+        ):
+            cursor.execute(
+                """SELECT id, measured_on, weight_kg, height_cm_snapshot,
+                          created_at, updated_at
+                   FROM weight_measurements
+                   WHERE user_id = %s AND measured_on = %s""",
+                (user_id, measured_on),
+            )
+            measurement = cursor.fetchone()
+            if _onboarding_matches(user, measurement, body):
+                return _onboarding_response(user, measurement)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Onboarding is already completed",
+            )
+
         cursor.execute(
             """UPDATE users SET
                    birth_year = %s,
@@ -519,7 +632,10 @@ def complete_onboarding(
                    fat_goal = %s,
                    onboarding_completed_at = COALESCE(onboarding_completed_at, now())
                WHERE id = %s
-               RETURNING onboarding_completed_at""",
+               RETURNING id, onboarding_completed_at, birth_year,
+                         sex_for_energy_estimate, height_cm, target_weight_kg,
+                         target_date, activity_level, calorie_goal, protein_goal,
+                         carbs_goal, fat_goal""",
             (
                 body.birth_year,
                 body.sex_for_energy_estimate,
@@ -534,7 +650,7 @@ def complete_onboarding(
                 user_id,
             ),
         )
-        completed_at = cursor.fetchone()["onboarding_completed_at"]
+        user = cursor.fetchone()
         cursor.execute(
             """INSERT INTO weight_measurements
                    (user_id, measured_on, weight_kg, height_cm_snapshot)
@@ -546,17 +662,5 @@ def complete_onboarding(
                          created_at, updated_at""",
             (user_id, measured_on, body.current_weight_kg, body.height_cm),
         )
-        measurement = _measurement_response(cursor.fetchone())
-        return OnboardingResponse(
-            onboarding_completed_at=completed_at,
-            birth_year=body.birth_year,
-            sex_for_energy_estimate=body.sex_for_energy_estimate,
-            height_cm=float(body.height_cm),
-            target_weight_kg=float(body.target_weight_kg),
-            target_date=body.target_date,
-            activity_level=body.activity_level,
-            goals=SavedGoals(**{
-                name: float(value) for name, value in body.goals.model_dump().items()
-            }),
-            current_weight=measurement,
-        )
+        measurement = cursor.fetchone()
+        return _onboarding_response(user, measurement)

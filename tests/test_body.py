@@ -2,10 +2,11 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from psycopg.types.json import Jsonb
 
 from app import body as body_module
 from app.db import get_connection
-from conftest import headers
+from conftest import headers, payload
 
 
 TODAY = date(2026, 9, 27)
@@ -245,7 +246,7 @@ def test_recommendation_rejects_invalid_or_underage_input(context, changes):
     assert response.status_code == 422
 
 
-def test_onboarding_is_atomic_retry_safe_and_saves_all_fields(context):
+def test_onboarding_exact_retry_is_read_only_and_returns_saved_state(context):
     client, users, _ = context
     user = users[3]
     add_identity(user)
@@ -260,12 +261,19 @@ def test_onboarding_is_atomic_retry_safe_and_saves_all_fields(context):
     assert result['current_weight']['bmi'] == 21.8
     assert result['goals'] == {'calories':1850, 'protein':110, 'carbs':220, 'fat':55}
 
+    with get_connection() as conn:
+        profile_before = conn.execute("""SELECT onboarding_completed_at, birth_year,
+            sex_for_energy_estimate, height_cm, target_weight_kg, target_date,
+            activity_level, calorie_goal, protein_goal, carbs_goal, fat_goal,
+            updated_at FROM users WHERE id=%s""", (user,)).fetchone()
+        weight_before = conn.execute("""SELECT id, weight_kg, height_cm_snapshot,
+            created_at, updated_at FROM weight_measurements WHERE user_id=%s""",
+            (user,)).fetchone()
+
     retry = client.post('/users/me/onboarding', headers=headers(user),
-                        json=onboarding_payload(current_weight_kg=62.8))
+                        json=onboarding_payload())
     assert retry.status_code == 200
-    assert retry.json()['onboarding_completed_at'] == result['onboarding_completed_at']
-    assert retry.json()['current_weight']['id'] == result['current_weight']['id']
-    assert retry.json()['current_weight']['weight_kg'] == 62.8
+    assert retry.json() == result
     current = client.get('/users/me', headers=headers(user)).json()
     assert {key:current[key] for key in (
         'birth_year', 'sex_for_energy_estimate', 'height_cm',
@@ -275,10 +283,143 @@ def test_onboarding_is_atomic_retry_safe_and_saves_all_fields(context):
         'activity_level':'moderate'}
     assert current['goals'] == result['goals']
     with get_connection() as conn:
+        profile_after = conn.execute("""SELECT onboarding_completed_at, birth_year,
+            sex_for_energy_estimate, height_cm, target_weight_kg, target_date,
+            activity_level, calorie_goal, protein_goal, carbs_goal, fat_goal,
+            updated_at FROM users WHERE id=%s""", (user,)).fetchone()
+        weight_after = conn.execute("""SELECT id, weight_kg, height_cm_snapshot,
+            created_at, updated_at FROM weight_measurements WHERE user_id=%s""",
+            (user,)).fetchone()
         count = conn.execute(
             'SELECT count(*) AS n FROM weight_measurements WHERE user_id=%s',
             (user,)).fetchone()['n']
+    assert profile_after == profile_before
+    assert weight_after == weight_before
     assert count == 1
+
+
+@pytest.mark.parametrize(('field', 'value'), [
+    ('height_cm', 180),
+    ('current_weight_kg', 70),
+    ('goal_calories', 2200),
+])
+def test_completed_onboarding_rejects_different_payload_without_writes(
+    context, field, value,
+):
+    client, users, _ = context
+    user = users[3]
+    add_identity(user)
+    original = onboarding_payload()
+    assert client.post('/users/me/onboarding', headers=headers(user),
+                       json=original).status_code == 200
+    with get_connection() as conn:
+        profile_before = conn.execute("SELECT * FROM users WHERE id=%s", (user,)).fetchone()
+        weight_before = conn.execute(
+            "SELECT * FROM weight_measurements WHERE user_id=%s", (user,)).fetchone()
+
+    changed = onboarding_payload()
+    if field == 'goal_calories':
+        changed['goals'] = changed['goals'] | {'calories':value}
+    else:
+        changed[field] = value
+    response = client.post('/users/me/onboarding', headers=headers(user), json=changed)
+    assert response.status_code == 409
+    assert response.json() == {'detail':'Onboarding is already completed'}
+
+    with get_connection() as conn:
+        profile_after = conn.execute("SELECT * FROM users WHERE id=%s", (user,)).fetchone()
+        weight_after = conn.execute(
+            "SELECT * FROM weight_measurements WHERE user_id=%s", (user,)).fetchone()
+        count = conn.execute(
+            "SELECT count(*) AS n FROM weight_measurements WHERE user_id=%s",
+            (user,)).fetchone()['n']
+    assert profile_after == profile_before
+    assert weight_after == weight_before
+    assert count == 1
+
+
+def test_completed_onboarding_with_missing_today_weight_conflicts_without_repair(context):
+    client, users, _ = context
+    user = users[3]
+    add_identity(user)
+    request = onboarding_payload()
+    assert client.post('/users/me/onboarding', headers=headers(user),
+                       json=request).status_code == 200
+    with get_connection() as conn:
+        conn.execute('DELETE FROM weight_measurements WHERE user_id=%s', (user,))
+        profile_before = conn.execute(
+            'SELECT * FROM users WHERE id=%s', (user,)).fetchone()
+
+    response = client.post('/users/me/onboarding', headers=headers(user), json=request)
+    assert response.status_code == 409
+    assert response.json() == {'detail':'Onboarding is already completed'}
+    with get_connection() as conn:
+        assert conn.execute(
+            'SELECT * FROM users WHERE id=%s', (user,)).fetchone() == profile_before
+        assert conn.execute("""SELECT count(*) AS n FROM weight_measurements
+            WHERE user_id=%s""", (user,)).fetchone()['n'] == 0
+
+
+def test_grandfathered_user_can_initialize_without_losing_existing_data(context):
+    client, users, _ = context
+    user = users[2]
+    add_identity(user)
+    meal = client.post('/meals', headers=headers(user),
+                       json=payload(name='grandfathered meal')).json()
+    days = [{'day_index':index, 'items':[]} for index in range(7)]
+    with get_connection() as conn:
+        grandfathered_at = conn.execute("""UPDATE users
+            SET onboarding_completed_at='2026-09-01T00:00:00Z'
+            WHERE id=%s RETURNING onboarding_completed_at""", (user,)).fetchone()[
+                'onboarding_completed_at']
+        template_id = conn.execute("""INSERT INTO training_templates (user_id, days)
+            VALUES (%s, %s) RETURNING id""", (user, Jsonb(days))).fetchone()['id']
+        pair_id = conn.execute(
+            'SELECT pair_id FROM pair_members WHERE user_id=%s AND left_at IS NULL',
+            (user,)).fetchone()['pair_id']
+
+    before = client.get('/users/me', headers=headers(user))
+    assert before.status_code == 200
+    assert before.json()['onboarding_completed_at'] is not None
+    assert before.json()['height_cm'] is None
+
+    response = client.post('/users/me/onboarding', headers=headers(user),
+                           json=onboarding_payload())
+    assert response.status_code == 200, response.text
+    assert response.json()['onboarding_completed_at'] == grandfathered_at.isoformat().replace(
+        '+00:00', 'Z')
+    with get_connection() as conn:
+        assert conn.execute('SELECT 1 FROM meals WHERE id=%s',
+                            (meal['id'],)).fetchone() is not None
+        assert conn.execute('SELECT 1 FROM training_templates WHERE id=%s',
+                            (template_id,)).fetchone() is not None
+        assert conn.execute('SELECT 1 FROM auth_identities WHERE user_id=%s',
+                            (user,)).fetchone() is not None
+        assert conn.execute('SELECT 1 FROM pair_members WHERE pair_id=%s AND user_id=%s',
+                            (pair_id, user)).fetchone() is not None
+        assert conn.execute("""SELECT count(*) AS n FROM weight_measurements
+            WHERE user_id=%s""", (user,)).fetchone()['n'] == 1
+
+
+def test_onboarding_and_recommendation_share_today_timeline_rule(context):
+    client, users, _ = context
+    user = users[3]
+    changing = recommendation_payload(target_weight_kg=58,
+                                      target_date=TODAY.isoformat())
+    assert client.post('/users/me/calorie-recommendation', headers=headers(user),
+                       json=changing).status_code == 422
+    assert client.post('/users/me/onboarding', headers=headers(user), json=(
+        changing | {'goals':onboarding_payload()['goals']}
+    )).status_code == 422
+
+    maintaining = recommendation_payload(target_weight_kg=63,
+                                          target_date=TODAY.isoformat())
+    assert client.post('/users/me/calorie-recommendation', headers=headers(user),
+                       json=maintaining).status_code == 200
+    onboarding = client.post('/users/me/onboarding', headers=headers(user), json=(
+        maintaining | {'goals':onboarding_payload()['goals']}
+    ))
+    assert onboarding.status_code == 200, onboarding.text
 
 
 def test_onboarding_failure_rolls_back_profile_goals_and_weight(context):
