@@ -45,9 +45,12 @@ def test_summary_unauthenticated(context, auth):
 
 
 def test_summary_unpaired(context):
-    response = context[0].get('/summary/daily', params={'date':DATE}, headers=headers(context[1][3]))
-    assert response.status_code == 404
-    assert response.json() == {'detail':'Current pair not found'}
+    user = context[1][3]
+    result = summary(context, user)
+    assert result == dict(date=DATE, **ZERO, meal_count=0, meals=[],
+                          self_slice=dict(user_id=str(user), display_name='未命名成员',
+                                          character='boy', **ZERO),
+                          partner_slice=None, self_goals=GOALS, partner_goals=None)
 
 
 def test_summary_one_member_empty(context):
@@ -169,10 +172,11 @@ def test_monthly_invalid_month(context, params):
 
 
 def test_monthly_unpaired(context):
-    response = context[0].get('/summary/monthly', headers=headers(context[1][3]),
-                               params={'month':'2026-09'})
-    assert response.status_code == 404
-    assert response.json() == {'detail':'Current pair not found'}
+    user = context[1][3]
+    result = monthly(context, user)
+    assert result['self']['user_id'] == str(user)
+    assert result['partner'] is None
+    assert all(day['partner_calories'] is None for day in result['days'])
 
 
 @pytest.mark.parametrize('month,length', [('2026-02',28), ('2026-09',30),

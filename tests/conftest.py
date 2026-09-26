@@ -50,6 +50,8 @@ def database():
         conn.execute((ROOT / 'app/migrations/012_user_character.sql').read_text())
         conn.execute((ROOT / 'app/migrations/013_meal_favorites.sql').read_text())
         conn.execute((ROOT / 'app/migrations/013_meal_favorites.sql').read_text())
+        conn.execute((ROOT / 'app/migrations/014_pair_lifecycle.sql').read_text())
+        conn.execute((ROOT / 'app/migrations/014_pair_lifecycle.sql').read_text())
     yield
     with psycopg.connect(host=os.environ['DATABASE_HOST'], port=os.environ['DATABASE_PORT'],
                          dbname='postgres', user='postgres', password='test-only',
@@ -62,7 +64,8 @@ def context():
     with get_connection() as conn:
         users = [conn.execute('INSERT INTO users DEFAULT VALUES RETURNING id').fetchone()['id']
                  for _ in range(4)]
-        pair = conn.execute('INSERT INTO pairs (invite_code) VALUES (%s) RETURNING id',
+        pair = conn.execute('''INSERT INTO pairs (invite_code, connected_at)
+                            VALUES (%s, now()) RETURNING id''',
                             (str(uuid4()),)).fetchone()['id']
         for user in users[:2]:
             conn.execute('INSERT INTO pair_members (pair_id, user_id) VALUES (%s, %s)', (pair, user))

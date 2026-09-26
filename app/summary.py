@@ -4,13 +4,13 @@ from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.encoders import jsonable_encoder
 
 from app.auth import get_current_user_id
 from app.db import connection
 from app.meals import MACROS, public_meal
-from app.pairs import _current_pair_id
+from app.pairs import _current_pair_state
 
 router = APIRouter(prefix='/summary', tags=['summary'])
 DEFAULT_GOALS = {'calorie_goal': Decimal(2000), 'protein_goal': Decimal(90),
@@ -27,6 +27,23 @@ def _goals(member):
             for key, default in DEFAULT_GOALS.items()}
 
 
+def _summary_members(cursor, user_id, pair_id):
+    if pair_id is None:
+        cursor.execute('''SELECT u.id AS user_id,
+            COALESCE(NULLIF(BTRIM(u.display_name), ''), '未命名成员') AS display_name,
+            u.character,
+            u.calorie_goal, u.protein_goal, u.carbs_goal, u.fat_goal
+            FROM users u WHERE u.id = %s''', (user_id,))
+    else:
+        cursor.execute('''SELECT u.id AS user_id,
+            COALESCE(NULLIF(BTRIM(u.display_name), ''), '未命名成员') AS display_name,
+            u.character,
+            u.calorie_goal, u.protein_goal, u.carbs_goal, u.fat_goal
+            FROM users u JOIN pair_members pm ON pm.user_id = u.id
+            WHERE pm.pair_id = %s ORDER BY u.id''', (pair_id,))
+    return cursor.fetchall()
+
+
 @router.get('/daily')
 def daily_summary(
     user_id: Annotated[UUID, Depends(get_current_user_id)],
@@ -35,19 +52,13 @@ def daily_summary(
     with connection() as conn, conn.cursor() as cursor:
         # Membership, names and meals share one snapshot, including during shared edits.
         cursor.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
-        pair_id = _current_pair_id(cursor, user_id)
-        if pair_id is None:
-            raise HTTPException(404, 'Current pair not found')
+        pair_id, _ = _current_pair_state(cursor, user_id)
         # Keep profile goals in the same repeatable-read snapshot as meal totals.
-        cursor.execute('''SELECT u.id AS user_id,
-            COALESCE(NULLIF(BTRIM(u.display_name), ''), '未命名成员') AS display_name,
-            u.character,
-            u.calorie_goal, u.protein_goal, u.carbs_goal, u.fat_goal
-            FROM users u JOIN pair_members pm ON pm.user_id = u.id
-            WHERE pm.pair_id = %s ORDER BY u.id''', (pair_id,))
-        members = cursor.fetchall()
-        cursor.execute('SELECT * FROM meals WHERE pair_id = %s AND meal_date = %s '
-                       'ORDER BY meal_time, created_at, id', (pair_id, date))
+        members = _summary_members(cursor, user_id, pair_id)
+        cursor.execute('''SELECT * FROM meals WHERE meal_date = %s AND (
+            (%s::uuid IS NOT NULL AND pair_id = %s)
+            OR (pair_id IS NULL AND user_id = %s)
+        ) ORDER BY meal_time, created_at, id''', (date, pair_id, pair_id, user_id))
         rows = cursor.fetchall()
         member_data = {member['user_id']: member for member in members}
         slices = {
@@ -81,22 +92,17 @@ def monthly_summary(
 
     with connection() as conn, conn.cursor() as cursor:
         cursor.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
-        pair_id = _current_pair_id(cursor, user_id)
-        if pair_id is None:
-            raise HTTPException(404, 'Current pair not found')
-        cursor.execute('''SELECT u.id AS user_id,
-            COALESCE(NULLIF(BTRIM(u.display_name), ''), '未命名成员') AS display_name,
-            u.character,
-            u.calorie_goal, u.protein_goal, u.carbs_goal, u.fat_goal
-            FROM users u JOIN pair_members pm ON pm.user_id = u.id
-            WHERE pm.pair_id = %s ORDER BY u.id''', (pair_id,))
-        members = cursor.fetchall()
+        pair_id, _ = _current_pair_state(cursor, user_id)
+        members = _summary_members(cursor, user_id, pair_id)
         cursor.execute('''SELECT meal_date, user_id, SUM(calories) AS calories
             FROM meals
-            WHERE pair_id = %s AND meal_date >= %s AND meal_date < %s
+            WHERE meal_date >= %s AND meal_date < %s AND (
+                (%s::uuid IS NOT NULL AND pair_id = %s)
+                OR (pair_id IS NULL AND user_id = %s)
+            )
             GROUP BY meal_date, user_id
             ORDER BY meal_date, user_id''',
-                       (pair_id, month_start, next_month_start))
+                       (month_start, next_month_start, pair_id, pair_id, user_id))
         totals = {(row['meal_date'], row['user_id']): row['calories']
                   for row in cursor.fetchall()}
 

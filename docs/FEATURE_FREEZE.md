@@ -14,9 +14,8 @@ The review covered the current FastAPI service, the current Flutter app, and
 the legacy `BYTESYNC-develope` mini-program. Legacy functionality was treated
 as reference material rather than a migration checklist.
 
-- P0 resolved in this round: logout is available even while the mandatory
-  Pair gate is active, and it clears the local JWT/auth state without deleting
-  the Backend user or changing Pair membership.
+- P0 resolved in this round: logout clears local JWT/auth state without deleting
+  the Backend user or changing optional Pair membership.
 - No unresolved P0 V1 launch blocker remains in the reviewed user paths.
 - P1 resolved in this round: one external teaching-video URL per private
   exercise reference; a usable Profile/My page; visible logout; user-facing
@@ -28,7 +27,7 @@ as reference material rather than a migration checklist.
 - Visual-only findings are recorded in `FINAL_UI_TODO.md`.
 
 The final repository-level walkthrough covered this complete V1 path:
-Login -> Pair -> Today -> Record -> AI -> save meal -> dual-person sharing ->
+Login -> Single use -> optional Pair -> Today -> Record -> AI -> save meal -> dual-person sharing ->
 edit/delete -> Goals -> Training -> Template -> fixed/custom exercise ->
 strength/duration/cardio -> check-in -> set edit -> History -> Video ->
 Profile -> Logout. No remaining functional blocker was found in that path.
@@ -37,9 +36,10 @@ Profile -> Logout. No remaining functional blocker was found in that path.
 
 - Google authentication, local JWT session restore, expiry handling, logout.
 - Private user profile with display name and nutrition goals.
-- Pair creation/joining, invite code, member status and partner identity.
-- Meal CRUD, text/image AI analysis, refine/reuse, solo/shared portions,
-  two-person daily summary, and personal goals.
+- Optional Pair creation/joining, invite code, Pending/Connected status and
+  partner identity. Login and Meal/Summary usage do not require a Pair.
+- Meal CRUD, text/image AI analysis, refine/reuse, Single solo meals,
+  Connected shared portions, daily/monthly summary, and personal goals.
 - Training templates, weekly snapshots, explicit current-week sync, history,
   strength/duration/cardio items, set check-in/edit, fixed exercise catalog,
   custom exercise CRUD, and optional duration values in seconds.
@@ -54,7 +54,8 @@ Profile -> Logout. No remaining functional blocker was found in that path.
 - Meals: `POST|GET /meals`; `GET /meals/recent`; `GET /meals/reuse`;
   `GET|PATCH|DELETE /meals/{meal_id}`.
 - Meal AI and summary: `POST /ai/meals/analyze-text`;
-  `POST /ai/meals/analyze-image`; `GET /summary/daily`.
+  `POST /ai/meals/analyze-image`; `GET /summary/daily`;
+  `GET /summary/monthly`.
 - Training template and weeks: `GET|PUT /training/template`;
   `GET /training/weeks`; `GET /training/weeks/current`;
   `GET /training/weeks/{week_id}`; `POST /training/weeks/current/sync`.

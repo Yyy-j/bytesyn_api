@@ -1,29 +1,35 @@
 # Meals MVP HTTP contract
 
-Implemented backend contract, 2026-09-08. No Summary endpoint is included.
+Implemented Backend Phase 1 contract, 2026-09-26.
 
-The official share_mode request, storage and response values match
-`Yyy-j/bytesync_app` main's `mobile/lib/features/meals/domain/meal_share_mode.dart`
-(blob `ba7c730809a117897ebed26268f94fc80d902826`):
+The official `share_mode` request, storage, and response values are:
 `solo / partner_only / shared_half / shared_me_one_third / shared_me_two_thirds`.
 POST and PATCH accept only these values, and Meal responses return the same
 value. The retired aliases `ta_only / half / me_1_3 / me_2_3` return 422;
-there is no alias normalization or alternate response dialect. Flutter is unchanged.
-Source values and other request/response fields were checked against the eight
-requested main-branch files and the meal mapper.
+there is no alias normalization or alternate response dialect.
 
 ## Authentication and visibility
 
 Every endpoint requires `Authorization: Bearer <access_token>`, verified by the
-existing JWT dependency. Internal `users.id` comes from JWT `sub`; the pair comes
-from `pair_members`. Request bodies reject unknown fields, including `user_id`,
-`pair_id`, `shared_meal_id`, stored nutrition, `share_ratio`, and `meal_date`.
+existing JWT dependency. Internal `users.id` comes from JWT `sub`; a Pair scope
+is used only when the current Pair is Connected. Request bodies reject unknown
+fields, including `user_id`, `pair_id`, `shared_meal_id`, stored nutrition,
+`share_ratio`, and `meal_date`.
 
-All six endpoints return `404 {"detail":"Current pair not found"}` for an
-unpaired authenticated user with otherwise valid input. A one-member pair can
-create solo meals; other modes return `409` until exactly one partner exists.
-Members can read, edit and delete all meals belonging to their current pair,
-including the partner's solo meals. Other pairs' IDs return `404 Meal not found`.
+- **Single** (no Pair) and **Pending** (one-member Pair): Meal operations work
+  normally, but creation accepts only `solo`. New rows always use
+  `user_id=current_user.id`, `pair_id=null`, `share_owner_id=current_user.id`,
+  and `shared_meal_id=null`.
+- **Connected**: new rows use the active Connected `pair_id` and retain all five
+  existing share modes and allocation-row behavior.
+- Connected users see current Pair rows plus only their own `pair_id=null`
+  history. A partner never receives another user's personal rows. Creating or
+  joining a Pair never rewrites historical Meals.
+
+Members can read, edit and delete Pair rows under the existing Connected Pair
+rules. A personal `pair_id=null` row can be read, edited or deleted only by its
+`user_id`. Other users' personal rows and other pairs' IDs return
+`404 {"detail":"Meal not found"}`.
 
 ## Endpoints
 
@@ -32,6 +38,9 @@ including the partner's solo meals. Other pairs' IDs return `404 Meal not found`
 | `POST /meals` | `201`, one Meal object |
 | `GET /meals?date=YYYY-MM-DD` | `200`, `{"meals":[Meal,...]}` |
 | `GET /meals/recent?limit=3` | `200`, `{"meals":[Meal,...]}` |
+| `GET /meals/reuse?date=YYYY-MM-DD&limit=5` | `200`, `{"items":[... ]}` |
+| `POST /meals/favorites` | `201`, one reusable favorite snapshot |
+| `DELETE /meals/favorites/{favorite_id}` | `204`, no body |
 | `GET /meals/{id}` | `200`, one Meal object |
 | `PATCH /meals/{id}` | `200`, one Meal object |
 | `DELETE /meals/{id}` | `204`, no body |
@@ -72,6 +81,10 @@ All fields below are required:
 - meal_date: server's current calendar date in **Asia/Tokyo**, not UTC.
 - timestamps: PostgreSQL TIMESTAMPTZ, returned as offset-bearing ISO-8601 strings.
 
+For Single/Pending creation, only `solo` is accepted; every non-solo mode below
+returns `409 {"detail":"A partner is required for this share mode"}`. Connected
+creation uses this unchanged allocation table:
+
 | share_mode | Original creator's allocation | Partner allocation | Rows |
 | --- | --- | --- | --- |
 | solo | 1 | 0 | One, owned by creator |
@@ -98,7 +111,7 @@ Calculated values above 99999999.99 return 422 and roll back the operation.
 ```json
 {
   "id": "11111111-1111-4111-8111-111111111111",
-  "pair_id": "22222222-2222-4222-8222-222222222222",
+  "pair_id": null,
   "user_id": "33333333-3333-4333-8333-333333333333",
   "shared_meal_id": null,
   "name": "Lunch",
@@ -122,15 +135,17 @@ Calculated values above 99999999.99 return 422 and roll back the operation.
 ```
 
 Macros and ratios are JSON **numbers**, not Decimal strings. The wire uses JSON
-number precision while PostgreSQL retains exact input base decimals.
+number precision while PostgreSQL retains exact input base decimals. `pair_id`
+is nullable: null means a personal Single/Pending Meal; non-null identifies the
+Connected Pair scope used when that Meal was created.
 
 ## Patch and delete
 
 PATCH accepts only the following optional, non-null fields:
 `name`, `base_calories`, `base_protein`, `base_carbs`, `base_fat`, `portion_ratio`,
 `share_mode`, `meal_time`, `expected_updated_at`. Validation matches create.
-`source`, identity fields and `meal_date` are not writable in the frozen Flutter
-DTO. The original meal_date is preserved and synchronized across shared rows;
+`source`, identity fields and `meal_date` are not writable. The original
+meal_date is preserved and synchronized across shared rows;
 meal_time changes propagate. Date movement would require a later contract change.
 
 ```json
@@ -157,23 +172,30 @@ DELETE by either shared row removes the entire group atomically; clients must no
 issue a second deletion. Repeating DELETE returns 404. DELETE has no optimistic
 version parameter because Flutter sends none.
 
+Personal rows remain personal during PATCH: their `pair_id` stays null and a
+non-solo transition returns 409 even if the owner later becomes Connected.
+
 All database access is parameterized (dynamic identifiers are from server-owned
-field sets and use psycopg.sql). Every operation uses one transaction. Pair row
-locking serializes pair operations before meal locks, so sibling edits cannot
-partially interleave. Existing NAS updated_at trigger is retained.
+field sets and use psycopg.sql). Every operation uses one transaction. An
+existing Pair row is locked before determining Pending/Connected scope, so a
+concurrent join and Meal creation have a deterministic boundary. Pair locking
+also prevents sibling edits from partially interleaving. Existing NAS updated_at
+trigger is retained.
 
 ## Errors and historical compatibility
 
 - 401: missing, malformed, expired or invalid Bearer token.
-- 404: no current pair; meal absent or outside the current pair.
-- 409: missing partner, optimistic conflict, or historical group requiring reconciliation.
+- 404: meal absent or outside the current user's personal/Connected Pair scope.
+- 409: non-solo mode without a Connected partner, optimistic conflict, or
+  historical group requiring reconciliation.
 - 422: invalid body, UUID, date, limit, timestamp, macro or calculated overflow.
 - 503: database error; always `{"detail":"Database unavailable"}`. Internal SQL,
   exceptions and credentials are never returned.
 
-003 preserves all historical rows/columns/constraints/triggers. It does not invent
-missing historical baselines, meal_time or sharing provenance. Reading a row with
-missing required wire fields or unknown enums returns an explicit 409, including
+003 and 014 preserve all historical Meal rows/columns/constraints/triggers.
+They do not invent missing historical baselines, meal_time or sharing
+provenance. Reading a row with missing required wire fields or unknown enums
+returns an explicit 409, including
 when encountered in a list. Historical solo rows with complete fields can be
 edited, using their user_id as creator. Historical shared/partner_only rows without
 share_owner_id cannot be edited until reconciled; no guess is made about original

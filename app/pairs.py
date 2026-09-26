@@ -27,6 +27,8 @@ class PairResponse(BaseModel):
     invite_code: str
     members: list[PairMemberResponse]
     created_at: datetime
+    connected_at: datetime | None
+    ended_at: datetime | None
 
 
 class JoinPairRequest(BaseModel):
@@ -44,7 +46,8 @@ def _new_invite_code() -> str:
 def _pair_response(cursor, pair_id: UUID) -> PairResponse:
     cursor.execute(
         """
-        SELECT p.id AS pair_id, p.invite_code, p.created_at, pm.user_id,
+        SELECT p.id AS pair_id, p.invite_code, p.created_at,
+               p.connected_at, p.ended_at, pm.user_id,
                u.display_name, u.character
         FROM pairs AS p
         JOIN pair_members AS pm ON pm.pair_id = p.id
@@ -65,6 +68,8 @@ def _pair_response(cursor, pair_id: UUID) -> PairResponse:
         pair_id=first["pair_id"],
         invite_code=first["invite_code"],
         created_at=first["created_at"],
+        connected_at=first["connected_at"],
+        ended_at=first["ended_at"],
         members=[
             PairMemberResponse(
                 user_id=row["user_id"],
@@ -83,6 +88,31 @@ def _current_pair_id(cursor, user_id: UUID) -> UUID | None:
     )
     row = cursor.fetchone()
     return row["pair_id"] if row else None
+
+
+def _current_pair_state(cursor, user_id: UUID, *, lock: bool = False):
+    lock_clause = " FOR UPDATE OF p" if lock else ""
+    cursor.execute(
+        """SELECT p.id, p.connected_at, p.ended_at
+        FROM pairs AS p
+        JOIN pair_members AS pm ON pm.pair_id = p.id
+        WHERE pm.user_id = %s""" + lock_clause,
+        (user_id,),
+    )
+    pair = cursor.fetchone()
+    if pair is None:
+        return None, []
+    cursor.execute(
+        "SELECT user_id FROM pair_members WHERE pair_id = %s ORDER BY user_id",
+        (pair["id"],),
+    )
+    members = [row["user_id"] for row in cursor.fetchall()]
+    connected = (
+        len(members) == 2
+        and pair["connected_at"] is not None
+        and pair["ended_at"] is None
+    )
+    return (pair["id"] if connected else None), members
 
 
 @router.get("/me", response_model=PairResponse)
@@ -145,7 +175,8 @@ def join_pair(
     with connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
-                "SELECT id FROM pairs WHERE invite_code = %s FOR UPDATE",
+                """SELECT id, connected_at, ended_at
+                FROM pairs WHERE invite_code = %s FOR UPDATE""",
                 (body.invite_code,),
             )
             pair = cursor.fetchone()
@@ -161,11 +192,14 @@ def join_pair(
                     else "User is already paired"
                 )
 
+            if pair["ended_at"] is not None or pair["connected_at"] is not None:
+                raise _conflict("Pair is not available to join")
+
             cursor.execute(
                 "SELECT count(*) AS member_count FROM pair_members WHERE pair_id = %s",
                 (pair_id,),
             )
-            if cursor.fetchone()["member_count"] >= 2:
+            if cursor.fetchone()["member_count"] != 1:
                 raise _conflict("Pair is full")
 
             try:
@@ -175,4 +209,8 @@ def join_pair(
                 )
             except IntegrityError:
                 raise _conflict("User is already paired") from None
+            cursor.execute(
+                "UPDATE pairs SET connected_at = now() WHERE id = %s",
+                (pair_id,),
+            )
             return _pair_response(cursor, pair_id)

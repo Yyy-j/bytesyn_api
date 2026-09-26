@@ -1,4 +1,4 @@
-"""Pair-scoped meals. Every operation uses one PostgreSQL transaction."""
+"""User-owned meals with optional Connected Pair sharing."""
 from datetime import date as Date, datetime
 from decimal import Decimal, ROUND_HALF_UP, localcontext
 from fractions import Fraction
@@ -14,6 +14,7 @@ from psycopg.types.json import Jsonb
 
 from app.auth import get_current_user_id
 from app.db import connection
+from app.pairs import _current_pair_state
 
 router = APIRouter(prefix="/meals", tags=["meals"])
 User = Annotated[UUID, Depends(get_current_user_id)]
@@ -30,7 +31,8 @@ PUBLIC = ('id', 'pair_id', 'user_id', 'shared_meal_id', 'name', 'source',
           'share_mode', 'meal_date', 'meal_time', 'dishes', 'ai_hint', 'original_input',
           'created_at', 'updated_at')
 REQUIRED_PUBLIC = tuple(key for key in PUBLIC
-                        if key not in ('shared_meal_id', 'dishes', 'ai_hint', 'original_input'))
+                        if key not in ('pair_id', 'shared_meal_id', 'dishes',
+                                       'ai_hint', 'original_input'))
 
 
 class Dish(BaseModel):
@@ -109,21 +111,17 @@ def conflict(detail):
 
 
 def pair_context(cursor, user_id):
-    # Serialize mutations within a pair, before reading/locking any meal rows.
-    # Pair membership writes already lock pairs in app.pairs.join_pair.
-    cursor.execute('SELECT p.id FROM pairs p JOIN pair_members pm ON pm.pair_id = p.id '
-                   'WHERE pm.user_id = %s FOR UPDATE OF p', (user_id,))
-    row = cursor.fetchone()
-    if row is None:
-        raise HTTPException(404, 'Current pair not found')
-    cursor.execute('SELECT user_id FROM pair_members WHERE pair_id = %s ORDER BY user_id',
-                   (row['id'],))
-    return row['id'], [r['user_id'] for r in cursor.fetchall()]
+    # A Pending Pair row is locked too, serializing Meal creation with Pair join.
+    pair_id, members = _current_pair_state(cursor, user_id, lock=True)
+    return pair_id, members if pair_id is not None else [user_id]
 
 
-def find_meal(cursor, pair_id, meal_id):
-    cursor.execute('SELECT * FROM meals WHERE pair_id = %s AND id = %s FOR UPDATE',
-                   (pair_id, meal_id))
+def find_meal(cursor, pair_id, user_id, meal_id):
+    cursor.execute('''SELECT * FROM meals
+        WHERE id = %s AND (
+            (%s::uuid IS NOT NULL AND pair_id = %s)
+            OR (pair_id IS NULL AND user_id = %s)
+        ) FOR UPDATE''', (meal_id, pair_id, pair_id, user_id))
     row = cursor.fetchone()
     if row is None:
         raise HTTPException(404, 'Meal not found')
@@ -226,8 +224,10 @@ def create_meal(body: CreateMeal, user_id: User):
 def list_meals(user_id: User, date: Annotated[Date, Query()]):
     with connection() as conn, conn.cursor() as cursor:
         pair_id, _ = pair_context(cursor, user_id)
-        cursor.execute('SELECT * FROM meals WHERE pair_id = %s AND meal_date = %s '
-                       'ORDER BY meal_time, created_at, id', (pair_id, date))
+        cursor.execute('''SELECT * FROM meals WHERE meal_date = %s AND (
+            (%s::uuid IS NOT NULL AND pair_id = %s)
+            OR (pair_id IS NULL AND user_id = %s)
+        ) ORDER BY meal_time, created_at, id''', (date, pair_id, pair_id, user_id))
         return {'meals': [public_meal(row) for row in cursor.fetchall()]}
 
 
@@ -239,10 +239,11 @@ def recent_meals(user_id: User, limit: Annotated[int, Query(ge=1, le=10)] = 3):
         # One reusable record per shared group; latest meals first.
         cursor.execute('''SELECT * FROM (
             SELECT DISTINCT ON (COALESCE(shared_meal_id, id)) * FROM meals
-            WHERE pair_id = %s
+            WHERE ((%s::uuid IS NOT NULL AND pair_id = %s)
+                   OR (pair_id IS NULL AND user_id = %s))
             ORDER BY COALESCE(shared_meal_id, id), (user_id = %s) DESC, id
         ) recent ORDER BY meal_date DESC, meal_time DESC, created_at DESC, id DESC LIMIT %s''',
-                       (pair_id, user_id, limit))
+                       (pair_id, pair_id, user_id, user_id, limit))
         return {'meals': [public_meal(row) for row in cursor.fetchall()]}
 
 
@@ -266,12 +267,13 @@ def reuse_meals(user_id: User, date: Annotated[Date, Query()],
                           if row['source_meal_id'] is not None]
             meals_query = '''SELECT * FROM (
                 SELECT DISTINCT ON (COALESCE(shared_meal_id, id)) * FROM meals
-                WHERE pair_id = %s AND user_id = %s AND meal_date = %s
+                WHERE user_id = %s AND meal_date = %s
+                  AND ((%s::uuid IS NOT NULL AND pair_id = %s) OR pair_id IS NULL)
                   AND NOT (id = ANY(%s))
                 ORDER BY COALESCE(shared_meal_id, id), meal_time DESC NULLS LAST,
                          created_at DESC, id DESC
             ) reusable ORDER BY meal_time DESC NULLS LAST, created_at DESC, id DESC'''
-            meals_params = [pair_id, user_id, date, source_ids]
+            meals_params = [user_id, date, pair_id, pair_id, source_ids]
             if remaining is not None:
                 meals_query += ' LIMIT %s'
                 meals_params.append(remaining)
@@ -285,7 +287,7 @@ def reuse_meals(user_id: User, date: Annotated[Date, Query()],
 def create_favorite(body: CreateFavorite, user_id: User):
     with connection() as conn, conn.cursor() as cursor:
         pair_id, _ = pair_context(cursor, user_id)
-        meal = find_meal(cursor, pair_id, body.meal_id)
+        meal = find_meal(cursor, pair_id, user_id, body.meal_id)
         if meal['user_id'] != user_id:
             raise HTTPException(404, 'Meal not found')
         cursor.execute('''SELECT * FROM meal_favorites
@@ -319,7 +321,7 @@ def delete_favorite(favorite_id: UUID, user_id: User):
 def get_meal(meal_id: UUID, user_id: User):
     with connection() as conn, conn.cursor() as cursor:
         pair_id, _ = pair_context(cursor, user_id)
-        return public_meal(find_meal(cursor, pair_id, meal_id))
+        return public_meal(find_meal(cursor, pair_id, user_id, meal_id))
 
 
 def group_rows(cursor, pair_id, row):
@@ -337,8 +339,10 @@ def group_rows(cursor, pair_id, row):
 def patch_meal(meal_id: UUID, body: PatchMeal, user_id: User):
     with connection() as conn, conn.cursor() as cursor:
         pair_id, members = pair_context(cursor, user_id)
-        row = find_meal(cursor, pair_id, meal_id)
-        rows = group_rows(cursor, pair_id, row)
+        row = find_meal(cursor, pair_id, user_id, meal_id)
+        meal_pair_id = row['pair_id']
+        meal_members = members if meal_pair_id is not None else [row['user_id']]
+        rows = group_rows(cursor, meal_pair_id, row)
         if body.expected_updated_at is not None and any(
                 r['updated_at'] != body.expected_updated_at for r in rows):
             conflict('Meal was updated; refresh and retry')
@@ -354,10 +358,11 @@ def patch_meal(meal_id: UUID, body: PatchMeal, user_id: User):
         data = {key: row[key] for key in CreateMeal.model_fields}
         data.update(changes)
         # Validate both allocations before making writes; failures still roll back.
-        slices = [(member, nutrition(data, ratio)) for member, ratio in allocations(data, owner, members)]
+        slices = [(member, nutrition(data, ratio))
+                  for member, ratio in allocations(data, owner, meal_members)]
         group_id = (row['shared_meal_id'] or uuid4()) if len(slices) == 2 else None
         cursor.execute('SELECT now() AS stamp')
-        data.update(pair_id=pair_id, share_owner_id=owner, shared_meal_id=group_id,
+        data.update(pair_id=meal_pair_id, share_owner_id=owner, shared_meal_id=group_id,
                     meal_date=row['meal_date'], updated_at=cursor.fetchone()['stamp'])
         existing = {r['user_id']: r for r in rows}
         if len(existing) != len(rows):
@@ -371,7 +376,7 @@ def patch_meal(meal_id: UUID, body: PatchMeal, user_id: User):
             values = dict(data, user_id=member, **macros)
             result.append(update_row(cursor, old['id'], values) if old else insert_meal(cursor, values))
         for old in existing.values():
-            cursor.execute('DELETE FROM meals WHERE id = %s AND pair_id = %s', (old['id'], pair_id))
+            cursor.execute('DELETE FROM meals WHERE id = %s', (old['id'],))
         chosen = next((r for r in result if r['id'] == meal_id), result[0])
         return public_meal(chosen)
 
@@ -380,8 +385,8 @@ def patch_meal(meal_id: UUID, body: PatchMeal, user_id: User):
 def delete_meal(meal_id: UUID, user_id: User):
     with connection() as conn, conn.cursor() as cursor:
         pair_id, _ = pair_context(cursor, user_id)
-        row = find_meal(cursor, pair_id, meal_id)
-        rows = group_rows(cursor, pair_id, row)
+        row = find_meal(cursor, pair_id, user_id, meal_id)
+        rows = group_rows(cursor, row['pair_id'], row)
         for old in rows:
-            cursor.execute('DELETE FROM meals WHERE id = %s AND pair_id = %s', (old['id'], pair_id))
+            cursor.execute('DELETE FROM meals WHERE id = %s', (old['id'],))
         return Response(status_code=204)

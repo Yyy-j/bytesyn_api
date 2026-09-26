@@ -162,13 +162,160 @@ def test_pair_authorization(context):
     for method in ['get','patch','delete']:
         kwargs = {'json':{'name':'intrusion'}} if method == 'patch' else {}
         assert client.request(method, path, headers=headers(users[2]), **kwargs).status_code == 404
-    for method, route in [('post','/meals'),('get','/meals?date='+meal['meal_date']),
-        ('get','/meals/recent'),('get',path),('patch',path),('delete',path)]:
-        kwargs = {'json':payload()} if method == 'post' else {'json':{}} if method == 'patch' else {}
-        result = client.request(method, route, headers=headers(users[3]), **kwargs)
-        assert result.status_code == 404 and result.json()['detail'] == 'Current pair not found'
+    # An unpaired user has a valid private Meal scope, but cannot access Pair meals.
+    for method in ['get','patch','delete']:
+        kwargs = {'json':{'name':'intrusion'}} if method == 'patch' else {}
+        assert client.request(method, path, headers=headers(users[3]), **kwargs).status_code == 404
     response = client.post('/meals', headers=headers(users[2]), json=payload(share_mode='shared_half'))
     assert response.status_code == 409
+
+
+def test_unpaired_user_solo_crud_recent_reuse_and_favorite(context):
+    client, users, _ = context
+    user = users[3]
+    auth = headers(user)
+    created = client.post('/meals', headers=auth, json=payload(name='private meal'))
+    assert created.status_code == 201, created.text
+    meal = created.json()
+    assert meal['user_id'] == str(user)
+    assert meal['pair_id'] is None
+    assert meal['share_mode'] == 'solo'
+    assert meal['shared_meal_id'] is None
+
+    path = '/meals/' + meal['id']
+    assert client.get(path, headers=auth).json() == meal
+    assert client.get('/meals', headers=auth,
+                      params={'date':meal['meal_date']}).json() == {'meals':[meal]}
+    assert client.get('/meals/recent', headers=auth).json() == {'meals':[meal]}
+    reuse = client.get('/meals/reuse', headers=auth,
+                       params={'date':meal['meal_date']}).json()['items']
+    assert [item['meal_id'] for item in reuse] == [meal['id']]
+
+    favorite = client.post('/meals/favorites', headers=auth,
+                           json={'meal_id':meal['id']})
+    assert favorite.status_code == 201, favorite.text
+    patched = client.patch(path, headers=auth, json={'name':'private updated'})
+    assert patched.status_code == 200, patched.text
+    assert patched.json()['name'] == 'private updated'
+    assert patched.json()['pair_id'] is None
+    assert client.delete(path, headers=auth).status_code == 204
+    assert client.get(path, headers=auth).status_code == 404
+
+
+def test_single_scope_security_and_non_solo_rejection(context):
+    client, users, _ = context
+    pending_user, unpaired_user = users[2], users[3]
+    meal = client.post('/meals', headers=headers(unpaired_user),
+                       json=payload(name='A private')).json()
+
+    for method in ['get', 'patch', 'delete']:
+        kwargs = {'json':{'name':'intrusion'}} if method == 'patch' else {}
+        response = client.request(method, '/meals/'+meal['id'],
+                                  headers=headers(pending_user), **kwargs)
+        assert response.status_code == 404
+    listed = client.get('/meals', headers=headers(pending_user),
+                        params={'date':meal['meal_date']}).json()['meals']
+    assert listed == []
+
+    for user in (pending_user, unpaired_user):
+        for mode in ['partner_only', 'shared_half', 'shared_me_one_third',
+                     'shared_me_two_thirds']:
+            response = client.post('/meals', headers=headers(user),
+                                   json=payload(share_mode=mode))
+            assert response.status_code == 409
+            assert response.json()['detail'] == 'A partner is required for this share mode'
+
+
+def test_pending_pair_meal_stays_private(context):
+    client, users, _ = context
+    user = users[2]
+    pair = client.get('/pairs/me', headers=headers(user)).json()
+    assert len(pair['members']) == 1
+    assert pair['connected_at'] is None and pair['ended_at'] is None
+
+    response = client.post('/meals', headers=headers(user), json=payload(name='pending private'))
+    assert response.status_code == 201, response.text
+    assert response.json()['pair_id'] is None
+    with get_connection() as conn:
+        stored = conn.execute('SELECT pair_id, share_mode, share_owner_id, shared_meal_id '
+                              'FROM meals WHERE id = %s', (response.json()['id'],)).fetchone()
+    assert stored == {'pair_id':None, 'share_mode':'solo',
+                      'share_owner_id':user, 'shared_meal_id':None}
+
+
+def test_personal_history_remains_private_after_partner_joins(context):
+    client, users, _ = context
+    owner, partner = users[3], users[2]
+    owner_auth, partner_auth = headers(owner), headers(partner)
+    before = client.post('/meals', headers=owner_auth,
+                         json=payload(name='before invite')).json()
+    pending = client.post('/pairs', headers=owner_auth)
+    assert pending.status_code == 201, pending.text
+    pair = pending.json()
+    pair_id = pair['pair_id']
+    try:
+        assert pair['connected_at'] is None
+        during = client.post('/meals', headers=owner_auth,
+                             json=payload(name='while pending')).json()
+        assert before['pair_id'] is None and during['pair_id'] is None
+
+        # Release the fixture's unrelated Pending Pair so this user can join A.
+        with get_connection() as conn:
+            conn.execute('DELETE FROM pair_members WHERE user_id = %s', (partner,))
+        joined = client.post('/pairs/join', headers=partner_auth,
+                             json={'invite_code':pair['invite_code']})
+        assert joined.status_code == 200, joined.text
+        assert joined.json()['connected_at'] is not None
+
+        shared = client.post('/meals', headers=owner_auth,
+                             json=payload(name='after connected', share_mode='shared_half'))
+        assert shared.status_code == 201, shared.text
+        assert shared.json()['pair_id'] == pair_id
+
+        meal_date = before['meal_date']
+        owner_meals = client.get('/meals', headers=owner_auth,
+                                 params={'date':meal_date}).json()['meals']
+        partner_meals = client.get('/meals', headers=partner_auth,
+                                   params={'date':meal_date}).json()['meals']
+        assert {meal['id'] for meal in owner_meals}.issuperset({before['id'], during['id']})
+        assert before['id'] not in {meal['id'] for meal in partner_meals}
+        assert during['id'] not in {meal['id'] for meal in partner_meals}
+        assert len([meal for meal in partner_meals if meal['shared_meal_id']]) == 2
+
+        for old in (before, during):
+            assert client.get('/meals/'+old['id'], headers=partner_auth).status_code == 404
+            assert client.patch('/meals/'+old['id'], headers=partner_auth,
+                                json={'name':'intrusion'}).status_code == 404
+            assert client.delete('/meals/'+old['id'], headers=partner_auth).status_code == 404
+
+        owner_summary = client.get('/summary/daily', headers=owner_auth,
+                                   params={'date':meal_date}).json()
+        partner_summary = client.get('/summary/daily', headers=partner_auth,
+                                     params={'date':meal_date}).json()
+        assert {meal['id'] for meal in owner_summary['meals']}.issuperset(
+            {before['id'], during['id']})
+        assert before['id'] not in {meal['id'] for meal in partner_summary['meals']}
+        assert during['id'] not in {meal['id'] for meal in partner_summary['meals']}
+
+        # Personal history cannot be converted into Pair scope after connection.
+        rejected = client.patch('/meals/'+before['id'], headers=owner_auth,
+                                json={'share_mode':'shared_half'})
+        assert rejected.status_code == 409
+        with get_connection() as conn:
+            assert conn.execute('SELECT pair_id FROM meals WHERE id = %s',
+                                (before['id'],)).fetchone()['pair_id'] is None
+
+        month = meal_date[:7]
+        day_index = int(meal_date[-2:]) - 1
+        owner_month = client.get('/summary/monthly', headers=owner_auth,
+                                 params={'month':month}).json()['days'][day_index]
+        partner_month = client.get('/summary/monthly', headers=partner_auth,
+                                   params={'month':month}).json()['days'][day_index]
+        assert owner_month['self_calories'] > partner_month['partner_calories']
+    finally:
+        with get_connection() as conn:
+            conn.execute('DELETE FROM meals WHERE pair_id = %s', (pair_id,))
+            conn.execute('DELETE FROM pairs WHERE id = %s', (pair_id,))
 
 
 def test_partner_only_and_mode_transitions(context):
@@ -324,7 +471,7 @@ def test_reuse_is_date_scoped_owned_ordered_and_limited(context):
     assert client.get('/meals/reuse', headers=headers(users[0]),
                       params={'date':target, 'limit':6}).status_code == 422
     assert client.get('/meals/reuse', headers=headers(users[3]),
-                      params={'date':target}).status_code == 404
+                      params={'date':target}).json() == {'items':[]}
 
 
 def test_reuse_without_limit_returns_all_items_for_date(context):
