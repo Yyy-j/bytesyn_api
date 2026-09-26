@@ -12,6 +12,7 @@ from app.ai_meals import router as ai_meals_router
 from app.pairs import router as pairs_router
 from app.meals import router as meals_router
 from app.users import router as users_router
+from app.body import router as body_router
 from app.summary import router as summary_router
 from app.training import router as training_router
 from app.training_exercises import router as training_exercises_router
@@ -48,6 +49,7 @@ if allowed_origins:
     )
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(body_router)
 app.include_router(pairs_router)
 app.include_router(meals_router)
 app.include_router(summary_router)

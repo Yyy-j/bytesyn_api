@@ -37,6 +37,8 @@ Profile -> Logout. No remaining functional blocker was found in that path.
 - Google authentication, 60-minute default Access Tokens, rotating 30-day
   Refresh Sessions, account deletion, local session restore, and logout.
 - Private user profile with display name and nutrition goals.
+- Private nullable body/target profile, first-login onboarding state, daily
+  weight history with derived BMI, and deterministic calorie/macro preview.
 - Optional Pair creation/joining, Pending invite regeneration/cancellation,
   Connected Pair ending, re-pairing, and partner identity. Historical Pair
   membership and Meal allocations are retained privately.
@@ -53,6 +55,10 @@ Profile -> Logout. No remaining functional blocker was found in that path.
 
 - Auth and user: `POST /auth/google`; `POST /auth/refresh`;
   `POST /auth/logout`; `GET|PATCH|DELETE /users/me`.
+- Private body/onboarding: `GET /users/me/body`;
+  `GET|POST /users/me/weight-measurements`;
+  `PATCH|DELETE /users/me/weight-measurements/{measurement_id}`;
+  `POST /users/me/calorie-recommendation`; `POST /users/me/onboarding`.
 - Pair: `POST /pairs`; `POST /pairs/join`; `GET /pairs/me`;
   `POST /pairs/invite-code/regenerate`; `POST /pairs/cancel`;
   `POST /pairs/end`.
@@ -75,6 +81,11 @@ Profile -> Logout. No remaining functional blocker was found in that path.
 Training is user-private and is never shared through Pair. Weekly JSONB data
 is a snapshot: catalog deletion or later catalog/video edits do not mutate
 existing Template/Week/History facts.
+
+Body profile, targets, weight measurements, and BMI are also user-private and
+are never included in Pair or Summary responses. Current weight comes only from
+the latest measurement. BMI is derived from each measurement's immutable height
+snapshot; neither current weight nor BMI is duplicated on `users`.
 
 The video contract stores one external `http`/`https` URL, at most 2048
 characters, for each `(user_id, exercise_id)` pair. PUT is an upsert. Video

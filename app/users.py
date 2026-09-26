@@ -1,3 +1,4 @@
+from datetime import date, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 from decimal import Decimal
@@ -6,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.auth import get_current_user_id
+from app.body import ActivityLevel, BodyHeight, BodyWeight, SexForEnergyEstimate, _today
 from app.db import connection, get_user_identity
 from app.pairs import _active_pair, _end_pair
 
@@ -34,6 +36,13 @@ class CurrentUserResponse(BaseModel):
     display_name: str | None
     character: Literal['boy', 'girl']
     goals: NutritionGoals
+    onboarding_completed_at: datetime | None
+    birth_year: int | None
+    sex_for_energy_estimate: SexForEnergyEstimate | None
+    height_cm: float | None
+    target_weight_kg: float | None
+    target_date: date | None
+    activity_level: ActivityLevel | None
 
 
 class PatchNutritionGoals(BaseModel):
@@ -49,6 +58,12 @@ class PatchCurrentUser(BaseModel):
     display_name: str | None = Field(default=None, max_length=100)
     character: Literal['boy', 'girl'] | None = None
     goals: PatchNutritionGoals | None = None
+    birth_year: int | None = None
+    sex_for_energy_estimate: SexForEnergyEstimate | None = None
+    height_cm: BodyHeight | None = None
+    target_weight_kg: BodyWeight | None = None
+    target_date: date | None = None
+    activity_level: ActivityLevel | None = None
 
     @field_validator('display_name')
     @classmethod
@@ -63,6 +78,20 @@ class PatchCurrentUser(BaseModel):
     def reject_null_character(cls, value):
         if value is None:
             raise ValueError('character must be boy or girl')
+        return value
+
+    @field_validator('birth_year')
+    @classmethod
+    def validate_birth_year(cls, value):
+        if value is not None and (value < 1900 or value > _today().year):
+            raise ValueError('birth_year must be between 1900 and the current year')
+        return value
+
+    @field_validator('target_date')
+    @classmethod
+    def validate_target_date(cls, value):
+        if value is not None and value < _today():
+            raise ValueError('target_date must not be in the past')
         return value
 
 
@@ -97,7 +126,9 @@ def patch_me(
 ) -> CurrentUserResponse:
     with connection() as conn, conn.cursor() as cursor:
         cursor.execute('''SELECT u.id, ai.provider, ai.email, u.display_name, u.character,
-            u.calorie_goal, u.protein_goal, u.carbs_goal, u.fat_goal
+            u.calorie_goal, u.protein_goal, u.carbs_goal, u.fat_goal,
+            u.onboarding_completed_at, u.birth_year, u.sex_for_energy_estimate,
+            u.height_cm, u.target_weight_kg, u.target_date, u.activity_level
             FROM users u JOIN auth_identities ai ON ai.user_id = u.id
             WHERE u.id = %s ORDER BY ai.created_at LIMIT 1 FOR UPDATE OF u''', (user_id,))
         user = cursor.fetchone()
@@ -142,6 +173,7 @@ def delete_me(
             'auth_sessions',
             'auth_identities',
             'meal_favorites',
+            'weight_measurements',
             'training_exercise_videos',
             'training_custom_exercises',
             'training_weeks',

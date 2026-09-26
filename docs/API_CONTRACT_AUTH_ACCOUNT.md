@@ -22,7 +22,8 @@ The endpoint runs as one database transaction:
 1. Lock the user and any active Pair.
 2. End an active Pending or Connected Pair, setting lifecycle timestamps.
 3. Delete all of the user's auth sessions, identities, favorites, Meals,
-   training templates/weeks/custom exercises/videos, and membership rows.
+   weight measurements, training templates/weeks/custom exercises/videos, and
+   membership rows.
 4. Delete the user profile.
 
 Deleting one Connected member ends the Pair. The partner account, membership

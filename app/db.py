@@ -70,7 +70,10 @@ def get_user_identity(user_id: UUID) -> dict[str, object] | None:
             cursor.execute(
                 """
                 SELECT u.id, ai.provider, ai.email, u.display_name, u.character,
-                       u.calorie_goal, u.protein_goal, u.carbs_goal, u.fat_goal
+                       u.calorie_goal, u.protein_goal, u.carbs_goal, u.fat_goal,
+                       u.onboarding_completed_at, u.birth_year,
+                       u.sex_for_energy_estimate, u.height_cm,
+                       u.target_weight_kg, u.target_date, u.activity_level
                 FROM users AS u
                 JOIN auth_identities AS ai ON ai.user_id = u.id
                 WHERE u.id = %s

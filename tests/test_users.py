@@ -24,7 +24,40 @@ def test_get_me_default_goals(context):
         'id':str(users[0]), 'email':'person@example.com', 'provider':'google',
         'display_name':None, 'character':'boy',
         'goals':{'calories':2000, 'protein':90, 'carbs':250, 'fat':60},
+        'onboarding_completed_at':None, 'birth_year':None,
+        'sex_for_energy_estimate':None, 'height_cm':None,
+        'target_weight_kg':None, 'target_date':None, 'activity_level':None,
     }
+
+
+def test_patch_me_body_profile_fields(context, monkeypatch):
+    client, users, _ = context
+    add_identity(users[0])
+    monkeypatch.setattr('app.users._today', lambda: datetime(2026, 9, 27).date())
+    response = client.patch('/users/me', headers=headers(users[0]), json={
+        'birth_year':1998, 'sex_for_energy_estimate':'female', 'height_cm':170.5,
+        'target_weight_kg':60, 'target_date':'2026-12-31',
+        'activity_level':'moderate'})
+    assert response.status_code == 200, response.text
+    assert {key:response.json()[key] for key in (
+        'birth_year', 'sex_for_energy_estimate', 'height_cm',
+        'target_weight_kg', 'target_date', 'activity_level')} == {
+        'birth_year':1998, 'sex_for_energy_estimate':'female', 'height_cm':170.5,
+        'target_weight_kg':60, 'target_date':'2026-12-31',
+        'activity_level':'moderate'}
+
+
+@pytest.mark.parametrize('changes', [
+    {'birth_year':2027}, {'birth_year':1899},
+    {'sex_for_energy_estimate':'other'}, {'activity_level':'sometimes'},
+    {'height_cm':0}, {'height_cm':251}, {'target_weight_kg':0},
+    {'target_date':'2026-09-26'},
+])
+def test_patch_me_rejects_invalid_body_profile(context, monkeypatch, changes):
+    client, users, _ = context
+    add_identity(users[0])
+    monkeypatch.setattr('app.users._today', lambda: datetime(2026, 9, 27).date())
+    assert client.patch('/users/me', headers=headers(users[0]), json=changes).status_code == 422
 
 
 def test_patch_me_profile_and_partial_goals(context):
