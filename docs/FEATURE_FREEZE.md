@@ -34,10 +34,12 @@ Profile -> Logout. No remaining functional blocker was found in that path.
 
 ## Completed V1 capabilities
 
-- Google authentication, local JWT session restore, expiry handling, logout.
+- Google authentication, 60-minute default Access Tokens, rotating 30-day
+  Refresh Sessions, account deletion, local session restore, and logout.
 - Private user profile with display name and nutrition goals.
-- Optional Pair creation/joining, invite code, Pending/Connected status and
-  partner identity. Login and Meal/Summary usage do not require a Pair.
+- Optional Pair creation/joining, Pending invite regeneration/cancellation,
+  Connected Pair ending, re-pairing, and partner identity. Historical Pair
+  membership and Meal allocations are retained privately.
 - Meal CRUD, text/image AI analysis, refine/reuse, Single solo meals,
   Connected shared portions, daily/monthly summary, and personal goals.
 - Training templates, weekly snapshots, explicit current-week sync, history,
@@ -49,8 +51,11 @@ Profile -> Logout. No remaining functional blocker was found in that path.
 
 ## Frozen Backend API range
 
-- Auth and user: `POST /auth/google`; `GET|PATCH /users/me`.
-- Pair: `POST /pairs`; `POST /pairs/join`; `GET /pairs/me`.
+- Auth and user: `POST /auth/google`; `POST /auth/refresh`;
+  `POST /auth/logout`; `GET|PATCH|DELETE /users/me`.
+- Pair: `POST /pairs`; `POST /pairs/join`; `GET /pairs/me`;
+  `POST /pairs/invite-code/regenerate`; `POST /pairs/cancel`;
+  `POST /pairs/end`.
 - Meals: `POST|GET /meals`; `GET /meals/recent`; `GET /meals/reuse`;
   `GET|PATCH|DELETE /meals/{meal_id}`.
 - Meal AI and summary: `POST /ai/meals/analyze-text`;

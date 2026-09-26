@@ -27,7 +27,9 @@ def _token_hash(token):
 
 def test_login_returns_access_and_refresh_tokens(context, monkeypatch):
     client, users, _ = context
+    before = datetime.now(timezone.utc)
     response = _login(client, users[0], monkeypatch)
+    after = datetime.now(timezone.utc)
 
     assert response.status_code == 200
     payload = response.json()
@@ -42,14 +44,18 @@ def test_login_returns_access_and_refresh_tokens(context, monkeypatch):
         issuer="bytesync",
     )
     assert claims["sub"] == str(users[0])
+    assert claims["exp"] - claims["iat"] == 60 * 60
 
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT token_hash FROM auth_sessions WHERE user_id = %s",
+            "SELECT token_hash, expires_at FROM auth_sessions WHERE user_id = %s",
             (users[0],),
         ).fetchone()
     assert row["token_hash"] == _token_hash(payload["refresh_token"])
     assert payload["refresh_token"] not in row["token_hash"]
+    assert auth.REFRESH_SESSION_EXPIRE_DAYS == 30
+    assert before + timedelta(days=30) <= row["expires_at"]
+    assert row["expires_at"] <= after + timedelta(days=30)
 
 
 def test_refresh_rotates_token_and_slides_expiry(context, monkeypatch):
@@ -79,8 +85,8 @@ def test_refresh_rotates_token_and_slides_expiry(context, monkeypatch):
             (_token_hash(rotated),),
         ).fetchone()
     assert old is None
-    assert before + timedelta(hours=72) <= current["expires_at"]
-    assert current["expires_at"] <= after + timedelta(hours=72)
+    assert before + timedelta(days=30) <= current["expires_at"]
+    assert current["expires_at"] <= after + timedelta(days=30)
     assert current["expires_at"] > near_expiry
 
     assert client.post(
@@ -88,7 +94,7 @@ def test_refresh_rotates_token_and_slides_expiry(context, monkeypatch):
     ).status_code == 401
 
 
-def test_refresh_rejects_session_inactive_over_72_hours(context, monkeypatch):
+def test_refresh_rejects_expired_session(context, monkeypatch):
     client, users, _ = context
     refresh_token = _login(client, users[0], monkeypatch).json()["refresh_token"]
     with get_connection() as conn:

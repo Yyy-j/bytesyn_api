@@ -259,9 +259,8 @@ def test_personal_history_remains_private_after_partner_joins(context):
                              json=payload(name='while pending')).json()
         assert before['pair_id'] is None and during['pair_id'] is None
 
-        # Release the fixture's unrelated Pending Pair so this user can join A.
-        with get_connection() as conn:
-            conn.execute('DELETE FROM pair_members WHERE user_id = %s', (partner,))
+        # End the fixture's unrelated Pending Pair so this user can join A.
+        assert client.post('/pairs/cancel', headers=partner_auth).status_code == 204
         joined = client.post('/pairs/join', headers=partner_auth,
                              json={'invite_code':pair['invite_code']})
         assert joined.status_code == 200, joined.text
@@ -316,6 +315,73 @@ def test_personal_history_remains_private_after_partner_joins(context):
         with get_connection() as conn:
             conn.execute('DELETE FROM meals WHERE pair_id = %s', (pair_id,))
             conn.execute('DELETE FROM pairs WHERE id = %s', (pair_id,))
+
+
+def test_ended_pair_history_is_owned_read_only_and_reusable(context):
+    client, users, pair_id = context
+    owner, partner = users[:2]
+    shared = create(context, name='historical shared', share_mode='shared_half',
+                    base_calories=800)
+    rows = group(shared)
+    by_user = {row['user_id']:row for row in rows}
+    partner_solo = client.post('/meals', headers=headers(partner),
+                               json=payload(name='partner only history')).json()
+
+    assert client.post('/pairs/end', headers=headers(owner)).status_code == 204
+    assert client.get('/pairs/me', headers=headers(owner)).status_code == 404
+    assert client.get('/pairs/me', headers=headers(partner)).status_code == 404
+
+    date = shared['meal_date']
+    owner_list = client.get('/meals', headers=headers(owner),
+                            params={'date':date}).json()['meals']
+    partner_list = client.get('/meals', headers=headers(partner),
+                              params={'date':date}).json()['meals']
+    assert {meal['id'] for meal in owner_list} == {str(by_user[owner]['id'])}
+    assert {meal['id'] for meal in partner_list} == {
+        str(by_user[partner]['id']), partner_solo['id']}
+    assert client.get('/meals/'+str(by_user[partner]['id']),
+                      headers=headers(owner)).status_code == 404
+
+    owner_path = '/meals/' + str(by_user[owner]['id'])
+    assert client.get(owner_path, headers=headers(owner)).status_code == 200
+    patch = client.patch(owner_path, headers=headers(owner), json={'name':'mutated'})
+    assert patch.status_code == 409
+    assert patch.json()['detail'] == 'Ended pair meals are read-only'
+    deletion = client.delete(owner_path, headers=headers(owner))
+    assert deletion.status_code == 409
+    assert deletion.json()['detail'] == 'Ended pair meals are read-only'
+    assert len(group(shared)) == 2
+
+    favorite = client.post('/meals/favorites', headers=headers(owner),
+                           json={'meal_id':str(by_user[owner]['id'])})
+    assert favorite.status_code == 201, favorite.text
+    reusable = client.get('/meals/reuse', headers=headers(owner),
+                          params={'date':date}).json()['items']
+    assert any(item['meal_id'] == str(by_user[owner]['id']) for item in reusable)
+    reused = client.post('/meals', headers=headers(owner),
+                         json=payload(name='reused solo', base_calories=400))
+    assert reused.status_code == 201, reused.text
+    assert reused.json()['pair_id'] is None and reused.json()['share_mode'] == 'solo'
+
+    daily = client.get('/summary/daily', headers=headers(owner),
+                       params={'date':date}).json()
+    assert daily['partner_slice'] is None and daily['partner_goals'] is None
+    assert {meal['id'] for meal in daily['meals']}.issuperset(
+        {str(by_user[owner]['id']), reused.json()['id']})
+    assert str(by_user[partner]['id']) not in {meal['id'] for meal in daily['meals']}
+    monthly = client.get('/summary/monthly', headers=headers(owner),
+                         params={'month':date[:7]}).json()
+    assert monthly['partner'] is None
+    assert all(day['partner_calories'] is None for day in monthly['days'])
+
+    with get_connection() as conn:
+        pair = conn.execute('SELECT ended_at FROM pairs WHERE id = %s',
+                            (pair_id,)).fetchone()
+        assert pair['ended_at'] is not None
+        assert conn.execute('SELECT count(*) AS n FROM pair_members WHERE pair_id = %s',
+                            (pair_id,)).fetchone()['n'] == 2
+        assert conn.execute('SELECT count(*) AS n FROM meals WHERE shared_meal_id = %s',
+                            (shared['shared_meal_id'],)).fetchone()['n'] == 2
 
 
 def test_partner_only_and_mode_transitions(context):

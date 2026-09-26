@@ -2,42 +2,67 @@
 
 All Pair endpoints require `Authorization: Bearer <access_token>`.
 
-## Lifecycle states
+## Active and historical membership
 
-- **Single**: the user has no `pair_members` row. `GET /pairs/me` returns
-  `404 {"detail":"Current pair not found"}`. No Pair is created automatically.
-- **Pending**: the Pair has one member and `connected_at=null`, `ended_at=null`.
-- **Connected**: the Pair has exactly two members, `connected_at` is non-null,
-  and `ended_at=null`.
+`pair_members` retains history. `left_at=null` means the membership is active;
+a non-null `left_at` means historical. A partial unique index permits at most
+one active Pair per user while allowing any number of historical Pairs.
 
-The existence of a Pair alone does not mean that the user is Connected.
+- **Single**: no active membership.
+- **Pending**: one active member, `connected_at=null`, `ended_at=null`.
+- **Connected**: two active members, `connected_at!=null`, `ended_at=null`.
+- **Ended**: `ended_at!=null`; all remaining memberships have `left_at` set.
 
-## `GET /pairs/me`
+Ended membership never counts as the current Pair.
 
-Returns HTTP `200` with the authenticated user's Pending or Connected Pair.
-Single users receive the 404 response documented above.
+## Endpoints
 
-## `POST /pairs`
+### `GET /pairs/me`
 
-The request body is empty. It creates a Pending Pair containing only the
-authenticated user and returns HTTP `201`. It does not change Meal scope.
+Returns HTTP 200 for the authenticated user's active Pending or Connected Pair.
+Single and Ended-only users receive:
 
-## `POST /pairs/join`
+```json
+{"detail":"Current pair not found"}
+```
 
-Request body:
+with HTTP 404.
+
+### `POST /pairs`
+
+Creates a new Pending Pair for a Single user and returns HTTP 201. Historical
+membership does not prevent creation.
+
+### `POST /pairs/join`
 
 ```json
 {"invite_code":"AB12CD34"}
 ```
 
-The target Pair row is locked. In the same transaction, the endpoint verifies
-that the Pair is Pending with exactly one member, inserts the second member,
-and sets `connected_at=now()`. It returns HTTP `200`. A Pair never exceeds two
-members.
+Locks the target Pair row, verifies that it is active Pending, inserts the
+second active membership, and sets `connected_at=now()` in one transaction.
+The caller must be Single.
 
-## Response shape
+### `POST /pairs/invite-code/regenerate`
 
-All successful Pair endpoints return the same JSON shape:
+Pending-only. Locks the same Pair row as join, replaces the invite code, and
+returns the unchanged Pair with HTTP 200. Pair ID, member, and lifecycle fields
+do not change. The old code is invalid immediately. Connected/Single/Ended
+states return 409.
+
+### `POST /pairs/cancel`
+
+Pending-only. Sets the Pair's `ended_at` and the sole active membership's
+`left_at` to the same transaction timestamp. Returns HTTP 204. Pair and
+membership history remain; its invite can no longer be joined.
+
+### `POST /pairs/end`
+
+Connected-only. Sets `ended_at` and both active memberships' `left_at` to the
+same timestamp in one transaction. Returns HTTP 204. Pair, membership, and Meal
+history remain. Both users immediately become Single and may pair again.
+
+## Pair response
 
 ```json
 {
@@ -56,15 +81,10 @@ All successful Pair endpoints return the same JSON shape:
 }
 ```
 
-`connected_at` and `ended_at` are nullable. This Phase does not expose an API
-that ends a Pair.
-
-## Error status codes
+## Errors
 
 - `401`: missing, malformed, expired, or invalid Bearer token.
-- `404`: authenticated user is Single (`GET /pairs/me`).
-- `409`: user already has a Pair, target Pair is not joinable/full, user is
-  already a member, or the invite code conflicts/does not exist.
-- `422`: malformed request input, including an invalid `invite_code`.
-
-Database errors are never returned verbatim.
+- `404`: no active current Pair for `GET /pairs/me`.
+- `409`: wrong lifecycle state, caller already has an active Pair, Pair is not
+  joinable/full, or invite code is invalid/obsolete.
+- `422`: malformed input, including invalid invite-code request data.

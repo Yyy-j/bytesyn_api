@@ -17,10 +17,14 @@ not affect scope.
   user's profile, goals, and `pair_id=null` Meals. Daily `partner_slice` and
   `partner_goals` are null. Monthly `partner` and every day's
   `partner_calories` are null.
-- **Connected** users receive current Pair allocations plus their own historical
-  `pair_id=null` Meals. The viewer's personal history contributes only to that
-  viewer's self totals. It is never included in the Partner's response or
-  partner slice.
+- **Connected** users receive current Pair allocations plus all of their own
+  historical allocations, including `pair_id=null` Meals and prior Ended Pair
+  rows. Historical rows contribute only to that viewer's self totals. They are
+  never included in the Partner's response or partner slice.
+- **Ended** users are Single for presentation: Daily partner fields and Monthly
+  partner fields are null. Their own persisted allocation from the Ended Pair
+  remains included in self totals, so ending a Pair does not erase nutrition
+  history.
 - Current Pair Meals keep the existing two-person self/partner behavior. Both
   allocation rows of a shared Meal remain visible and are counted separately.
 

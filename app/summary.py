@@ -40,7 +40,7 @@ def _summary_members(cursor, user_id, pair_id):
             u.character,
             u.calorie_goal, u.protein_goal, u.carbs_goal, u.fat_goal
             FROM users u JOIN pair_members pm ON pm.user_id = u.id
-            WHERE pm.pair_id = %s ORDER BY u.id''', (pair_id,))
+            WHERE pm.pair_id = %s AND pm.left_at IS NULL ORDER BY u.id''', (pair_id,))
     return cursor.fetchall()
 
 
@@ -57,7 +57,7 @@ def daily_summary(
         members = _summary_members(cursor, user_id, pair_id)
         cursor.execute('''SELECT * FROM meals WHERE meal_date = %s AND (
             (%s::uuid IS NOT NULL AND pair_id = %s)
-            OR (pair_id IS NULL AND user_id = %s)
+            OR user_id = %s
         ) ORDER BY meal_time, created_at, id''', (date, pair_id, pair_id, user_id))
         rows = cursor.fetchall()
         member_data = {member['user_id']: member for member in members}
@@ -98,7 +98,7 @@ def monthly_summary(
             FROM meals
             WHERE meal_date >= %s AND meal_date < %s AND (
                 (%s::uuid IS NOT NULL AND pair_id = %s)
-                OR (pair_id IS NULL AND user_id = %s)
+                OR user_id = %s
             )
             GROUP BY meal_date, user_id
             ORDER BY meal_date, user_id''',

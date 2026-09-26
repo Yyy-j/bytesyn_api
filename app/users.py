@@ -2,11 +2,12 @@ from typing import Annotated, Literal
 from uuid import UUID
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.auth import get_current_user_id
 from app.db import connection, get_user_identity
+from app.pairs import _active_pair, _end_pair
 
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -116,3 +117,45 @@ def patch_me(
                            [*changes.values(), user_id])
             user.update(changes)
         return user_response(user)
+
+
+@router.delete('/me', status_code=status.HTTP_204_NO_CONTENT)
+def delete_me(
+    user_id: Annotated[UUID, Depends(get_current_user_id)],
+) -> Response:
+    with connection() as conn, conn.cursor() as cursor:
+        # Pair-first lock ordering matches join/end/Meal mutations.
+        pair = _active_pair(cursor, user_id, lock=True)
+        cursor.execute('SELECT id FROM users WHERE id = %s FOR UPDATE', (user_id,))
+        if cursor.fetchone() is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail='Invalid authentication credentials',
+                headers={'WWW-Authenticate': 'Bearer'},
+            )
+
+        if pair is not None:
+            _end_pair(cursor, pair['id'])
+
+        # Explicit ownership audit: do not rely on an unreviewed cascade chain.
+        for table in (
+            'auth_sessions',
+            'auth_identities',
+            'meal_favorites',
+            'training_exercise_videos',
+            'training_custom_exercises',
+            'training_weeks',
+            'training_templates',
+        ):
+            cursor.execute(f'DELETE FROM {table} WHERE user_id = %s', (user_id,))
+
+        # Preserve a partner's allocation while removing deleted-user provenance.
+        cursor.execute(
+            '''UPDATE meals SET share_owner_id = NULL
+            WHERE share_owner_id = %s AND user_id <> %s''',
+            (user_id, user_id),
+        )
+        cursor.execute('DELETE FROM meals WHERE user_id = %s', (user_id,))
+        cursor.execute('DELETE FROM pair_members WHERE user_id = %s', (user_id,))
+        cursor.execute('DELETE FROM users WHERE id = %s', (user_id,))
+        return Response(status_code=status.HTTP_204_NO_CONTENT)

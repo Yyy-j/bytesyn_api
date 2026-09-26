@@ -38,7 +38,12 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: str = Field(min_length=1, max_length=512)
 
 
-REFRESH_SESSION_LIFETIME = timedelta(hours=72)
+REFRESH_SESSION_EXPIRE_DAYS = int(
+    os.environ.get("REFRESH_SESSION_EXPIRE_DAYS", "30")
+)
+if REFRESH_SESSION_EXPIRE_DAYS <= 0:
+    raise RuntimeError("REFRESH_SESSION_EXPIRE_DAYS must be positive")
+REFRESH_SESSION_LIFETIME = timedelta(days=REFRESH_SESSION_EXPIRE_DAYS)
 
 
 def _unauthorized() -> HTTPException:

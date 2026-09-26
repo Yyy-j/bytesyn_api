@@ -120,7 +120,7 @@ def find_meal(cursor, pair_id, user_id, meal_id):
     cursor.execute('''SELECT * FROM meals
         WHERE id = %s AND (
             (%s::uuid IS NOT NULL AND pair_id = %s)
-            OR (pair_id IS NULL AND user_id = %s)
+            OR user_id = %s
         ) FOR UPDATE''', (meal_id, pair_id, pair_id, user_id))
     row = cursor.fetchone()
     if row is None:
@@ -226,7 +226,7 @@ def list_meals(user_id: User, date: Annotated[Date, Query()]):
         pair_id, _ = pair_context(cursor, user_id)
         cursor.execute('''SELECT * FROM meals WHERE meal_date = %s AND (
             (%s::uuid IS NOT NULL AND pair_id = %s)
-            OR (pair_id IS NULL AND user_id = %s)
+            OR user_id = %s
         ) ORDER BY meal_time, created_at, id''', (date, pair_id, pair_id, user_id))
         return {'meals': [public_meal(row) for row in cursor.fetchall()]}
 
@@ -240,7 +240,7 @@ def recent_meals(user_id: User, limit: Annotated[int, Query(ge=1, le=10)] = 3):
         cursor.execute('''SELECT * FROM (
             SELECT DISTINCT ON (COALESCE(shared_meal_id, id)) * FROM meals
             WHERE ((%s::uuid IS NOT NULL AND pair_id = %s)
-                   OR (pair_id IS NULL AND user_id = %s))
+                   OR user_id = %s)
             ORDER BY COALESCE(shared_meal_id, id), (user_id = %s) DESC, id
         ) recent ORDER BY meal_date DESC, meal_time DESC, created_at DESC, id DESC LIMIT %s''',
                        (pair_id, pair_id, user_id, user_id, limit))
@@ -268,12 +268,11 @@ def reuse_meals(user_id: User, date: Annotated[Date, Query()],
             meals_query = '''SELECT * FROM (
                 SELECT DISTINCT ON (COALESCE(shared_meal_id, id)) * FROM meals
                 WHERE user_id = %s AND meal_date = %s
-                  AND ((%s::uuid IS NOT NULL AND pair_id = %s) OR pair_id IS NULL)
                   AND NOT (id = ANY(%s))
                 ORDER BY COALESCE(shared_meal_id, id), meal_time DESC NULLS LAST,
                          created_at DESC, id DESC
             ) reusable ORDER BY meal_time DESC NULLS LAST, created_at DESC, id DESC'''
-            meals_params = [user_id, date, pair_id, pair_id, source_ids]
+            meals_params = [user_id, date, source_ids]
             if remaining is not None:
                 meals_query += ' LIMIT %s'
                 meals_params.append(remaining)
@@ -341,6 +340,8 @@ def patch_meal(meal_id: UUID, body: PatchMeal, user_id: User):
         pair_id, members = pair_context(cursor, user_id)
         row = find_meal(cursor, pair_id, user_id, meal_id)
         meal_pair_id = row['pair_id']
+        if meal_pair_id is not None and meal_pair_id != pair_id:
+            conflict('Ended pair meals are read-only')
         meal_members = members if meal_pair_id is not None else [row['user_id']]
         rows = group_rows(cursor, meal_pair_id, row)
         if body.expected_updated_at is not None and any(
@@ -386,6 +387,8 @@ def delete_meal(meal_id: UUID, user_id: User):
     with connection() as conn, conn.cursor() as cursor:
         pair_id, _ = pair_context(cursor, user_id)
         row = find_meal(cursor, pair_id, user_id, meal_id)
+        if row['pair_id'] is not None and row['pair_id'] != pair_id:
+            conflict('Ended pair meals are read-only')
         rows = group_rows(cursor, row['pair_id'], row)
         for old in rows:
             cursor.execute('DELETE FROM meals WHERE id = %s', (old['id'],))

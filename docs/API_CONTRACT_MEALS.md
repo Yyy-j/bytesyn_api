@@ -22,9 +22,11 @@ fields, including `user_id`, `pair_id`, `shared_meal_id`, stored nutrition,
   and `shared_meal_id=null`.
 - **Connected**: new rows use the active Connected `pair_id` and retain all five
   existing share modes and allocation-row behavior.
-- Connected users see current Pair rows plus only their own `pair_id=null`
-  history. A partner never receives another user's personal rows. Creating or
-  joining a Pair never rewrites historical Meals.
+- **Ended**: users return to Single creation behavior. Their own allocation rows
+  from every Ended Pair remain visible, including in recent/reuse/Summary.
+- Connected users see current Pair rows plus all of their own historical
+  allocation rows. A current or former partner never receives another user's
+  personal/history rows. Pair lifecycle operations never rewrite Meal `pair_id`.
 
 Members can read, edit and delete Pair rows under the existing Connected Pair
 rules. A personal `pair_id=null` row can be read, edited or deleted only by its
@@ -175,6 +177,13 @@ version parameter because Flutter sends none.
 Personal rows remain personal during PATCH: their `pair_id` stays null and a
 non-solo transition returns 409 even if the owner later becomes Connected.
 
+Ended Pair rows are historical and read-only. GET/list/recent, favorite, and
+reuse are allowed only for the allocation whose `user_id` is the current user.
+PATCH and DELETE return `409 {"detail":"Ended pair meals are read-only"}`.
+This prevents one former partner from mutating or deleting the other former
+partner's allocation. Reusing the returned nutrition creates a normal new solo
+Meal through `POST /meals`.
+
 All database access is parameterized (dynamic identifiers are from server-owned
 field sets and use psycopg.sql). Every operation uses one transaction. An
 existing Pair row is locked before determining Pending/Connected scope, so a
@@ -186,8 +195,8 @@ trigger is retained.
 
 - 401: missing, malformed, expired or invalid Bearer token.
 - 404: meal absent or outside the current user's personal/Connected Pair scope.
-- 409: non-solo mode without a Connected partner, optimistic conflict, or
-  historical group requiring reconciliation.
+- 409: non-solo mode without a Connected partner, Ended Meal mutation,
+  optimistic conflict, or historical group requiring reconciliation.
 - 422: invalid body, UUID, date, limit, timestamp, macro or calculated overflow.
 - 503: database error; always `{"detail":"Database unavailable"}`. Internal SQL,
   exceptions and credentials are never returned.
