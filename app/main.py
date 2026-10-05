@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from psycopg import Error as PsycopgError
 
+from app.db import connection
 from app.auth import router as auth_router
 from app.ai_meals import router as ai_meals_router
 from app.pairs import router as pairs_router
@@ -59,7 +60,8 @@ app.include_router(training_exercises_router)
 
 
 @app.exception_handler(PsycopgError)
-def database_error_handler(_, __):
+def database_error_handler(_, exc: PsycopgError):
+    logger.exception("Database operation failed", exc_info=exc)
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         content={"detail": "Database unavailable"},
@@ -68,6 +70,12 @@ def database_error_handler(_, __):
 
 @app.get("/health")
 def health() -> dict[str, object]:
-    # This endpoint is a network/process liveness check. Keep the existing
-    # response contract, but do not make reachability depend on PostgreSQL.
+    # Keep this endpoint usable as a process liveness check (always HTTP 200
+    # while FastAPI can answer), but report database readiness truthfully.
+    try:
+        with connection() as conn:
+            conn.execute("SELECT 1").fetchone()
+    except PsycopgError as exc:
+        logger.warning("Database readiness check failed", exc_info=exc)
+        return {"status": "ok", "database": False}
     return {"status": "ok", "database": True}
