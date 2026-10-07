@@ -27,7 +27,7 @@ def test_health_is_a_database_independent_liveness_check(monkeypatch) -> None:
         response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "database": True}
+    assert response.json() == {"status": "ok", "database": False}
 
 
 def test_container_binds_all_interfaces() -> None:

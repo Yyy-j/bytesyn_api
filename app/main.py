@@ -75,7 +75,7 @@ def health() -> dict[str, object]:
     try:
         with connection() as conn:
             conn.execute("SELECT 1").fetchone()
-    except PsycopgError as exc:
+    except (PsycopgError, KeyError, ValueError) as exc:
         logger.warning("Database readiness check failed", exc_info=exc)
         return {"status": "ok", "database": False}
     return {"status": "ok", "database": True}
